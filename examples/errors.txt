@@ -1,0 +1,14 @@
+(10 20)
+
+(let ((radius 5) (height 10))
+  lambda (r h))
+
+(let ((x 1) (y
+    2))
+    (+ x y)
+  )
+
+'a b c)
+  (print "Volume calculated.")
+
+(let ((result (* 2 5))))
