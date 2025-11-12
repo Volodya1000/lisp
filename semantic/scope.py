@@ -1,28 +1,32 @@
-from typing import Optional, Dict
-
-from semantic.errors import DuplicateDeclarationError
-from semantic.utils import _pos_from_ctx
+from typing import Optional, Dict, Iterator
+from contextlib import contextmanager
 from semantic.symbol_info import SymbolInfo
 
 
 class Scope:
     def __init__(self, parent: Optional["Scope"] = None):
         self.parent = parent
-        self.symbols: Dict[str, SymbolInfo] = {}
+        self._symbols: Dict[str, SymbolInfo] = {}
 
-    def define(self, name: str, info: SymbolInfo, ctx=None):
-        if name in self.symbols:
-            line, col = _pos_from_ctx(ctx)
-            raise DuplicateDeclarationError(f"Duplicate declaration of '{name}' in the same scope", line, col)
-        self.symbols[name] = info
+    def define(self, name: str, info: SymbolInfo) -> None:
+        """Добавляет символ в текущий scope без проверок."""
+        self._symbols[name] = info
 
     def lookup(self, name: str) -> Optional[SymbolInfo]:
+        """Ищет символ в текущем и всех родительских scope."""
         cur = self
         while cur is not None:
-            if name in cur.symbols:
-                return cur.symbols[name]
+            if name in cur._symbols:
+                return cur._symbols[name]
             cur = cur.parent
         return None
 
     def exists_in_current(self, name: str) -> bool:
-        return name in self.symbols
+        """Проверяет наличие символа только в текущем scope."""
+        return name in self._symbols
+
+    @contextmanager
+    def nested_scope(self) -> Iterator["Scope"]:
+        """Безопасный контекстный менеджер для создания вложенного scope."""
+        new_scope = Scope(parent=self)
+        yield new_scope

@@ -1,10 +1,16 @@
 from dataclasses import dataclass
-from typing import Optional, Any
+from enum import Enum
+from typing import Optional
 
 
-@dataclass
+class SymbolKind(Enum):
+    VARIABLE = "var"
+    FUNCTION = "function"
+    BUILTIN = "builtin"
+
+
+@dataclass(frozen=True)
 class SymbolInfo:
     name: str
-    kind: str  # 'var' or 'function'
-    param_count: Optional[int] = None  # для функций (если известно), None = неизвестно
-    extra: Any = None
+    kind: SymbolKind
+    param_count: Optional[int] = None

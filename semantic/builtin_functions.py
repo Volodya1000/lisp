@@ -1,15 +1,15 @@
+from typing import Dict
+from semantic.symbol_info import SymbolInfo, SymbolKind
 
-BUILTIN_FUNCTIONS = {
-    "+": {"param_count": None},
-    "-": {"param_count": None},
-    "*": {"param_count": None},
-    "/": {"param_count": 2},
-    "car": {"param_count": 1},
-    "cdr": {"param_count": 1},
-    "cons": {"param_count": 2},
-    "list": {"param_count": None},
-    "=": {"param_count": 2},
-    "quote": {"param_count": 1},
+
+BUILTINS: Dict[str, SymbolInfo] = {
+    "+": SymbolInfo("+", SymbolKind.BUILTIN, param_count=None),
+    "-": SymbolInfo("-", SymbolKind.BUILTIN, param_count=None),
+    "*": SymbolInfo("*", SymbolKind.BUILTIN, param_count=None),
+    "/": SymbolInfo("/", SymbolKind.BUILTIN, param_count=2),
+    "car": SymbolInfo("car", SymbolKind.BUILTIN, param_count=1),
+    "cdr": SymbolInfo("cdr", SymbolKind.BUILTIN, param_count=1),
+    "cons": SymbolInfo("cons", SymbolKind.BUILTIN, param_count=2),
+    "list": SymbolInfo("list", SymbolKind.BUILTIN, param_count=None),
+    "=": SymbolInfo("=", SymbolKind.BUILTIN, param_count=2),
 }
-
-
