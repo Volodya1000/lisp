@@ -1,0 +1,12 @@
+(let (
+  ((a 10))
+
+  (+ a 5)
+
+(lambda (x y z)
+  (* x y z)
+)
+
+(defun my-func (p1)
+  '
+) ; E R R O R 5: QUOTE (апостроф) без последующего выражения

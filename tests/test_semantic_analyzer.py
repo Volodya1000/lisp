@@ -2,48 +2,70 @@ import pytest
 from antlr4 import InputStream, CommonTokenStream
 import gen.lisp_grammerLexer as LexerModule
 import gen.lisp_grammerParser as ParserModule
-from semantic.semantic import SemanticAnalyzer
-
+from semantic.errors import (
+    NameErrorSemantic,
+    DuplicateDeclarationError,
+    AttemptToCallNonFunctionError,
+    ArityError,
+    DivisionByZeroError,
+)
+from semantic.semantic_analizer import SemanticAnalyzer
 
 class TestSemanticAnalyzer:
-    """Набор тестов для проверки семантического анализатора."""
+    """Тесты семантического анализатора Lisp."""
 
     def analyze(self, code: str):
-        """Проводит анализ Lisp-кода и возвращает список ошибок."""
         input_stream = InputStream(code)
         lexer = LexerModule.lisp_grammerLexer(input_stream)
         stream = CommonTokenStream(lexer)
         parser = ParserModule.lisp_grammerParser(stream)
         tree = parser.program()
         analyzer = SemanticAnalyzer()
-        errors = analyzer.analyze(tree)
-        return errors
+        return analyzer.analyze(tree)
+
+    @staticmethod
+    def has_error(errors, error_type):
+        return any(isinstance(e, error_type) for e in errors)
 
     @staticmethod
     def msg_contains(errors, substring):
-        """Проверяет, содержится ли подстрока в сообщениях ошибок."""
         return any(substring in e.message for e in errors)
 
-    def test_name_error(self):
-        errors = self.analyze("(let ((x 1)) y)")
-        assert self.msg_contains(errors, "Undefined")
+    # ===================== Ошибочные примеры =====================
+    @pytest.mark.parametrize("code, error_type, substring", [
+        ("(let ((x 1)) y)", NameErrorSemantic, "Undefined"),
+        ("(let ((x 1) (x 2)) (+ x x))", DuplicateDeclarationError, "Duplicate binding"),
+        ("(42 1 2)", AttemptToCallNonFunctionError, "Attempt to call"),
+        ("((lambda (x y) (+ x y)) 1)", ArityError, "expects"),
+        ("(lambda (x x) (+ x 1))", DuplicateDeclarationError, "Duplicate parameter"),
+        ("(/ 4 0)", DivisionByZeroError, "Division by zero"),
+    ])
+    def test_semantic_errors(self, code, error_type, substring):
+        errors = self.analyze(code)
+        assert self.has_error(errors, error_type), (
+            f"Expected {error_type.__name__}, got {[type(e).__name__ for e in errors]}"
+        )
+        assert self.msg_contains(errors, substring), (
+            f"Message does not contain '{substring}'. Messages: {[e.message for e in errors]}"
+        )
 
-    def test_duplicate_var_in_let(self):
-        errors = self.analyze("(let ((x 1) (x 2)) (+ x x))")
-        assert self.msg_contains(errors, "Duplicate binding")
+    # ===================== Корректные примеры =====================
+    @pytest.mark.parametrize("code", [
+        # 1. let с одной переменной, корректное использование
+        "(let ((x 10)) (+ x 5))",
 
-    def test_attempt_to_call_non_function(self):
-        errors = self.analyze("(42 1 2)")
-        assert self.msg_contains(errors, "Attempt to call")
+        # 2. Lambda с правильным количеством аргументов
+        "((lambda (a b) (+ a b)) 3 4)",
 
-    def test_lambda_wrong_arity(self):
-        errors = self.analyze("((lambda (x y) (+ x y)) 1)")
-        assert self.msg_contains(errors, "expects")
+        # 3. Вложенные let
+        "(let ((x 2)) (let ((y 3)) (+ x y)))",
 
-    def test_duplicate_lambda_params(self):
-        errors = self.analyze("(lambda (x x) (+ x 1))")
-        assert self.msg_contains(errors, "Duplicate parameter")
+        # 4. Вызов встроенной функции с правильной арностью
+        "(+ 1 2 3 4)",
 
-    def test_division_by_zero_literal(self):
-        errors = self.analyze("(/ 4 0)")
-        assert self.msg_contains(errors, "Division by zero")
+        # 5. Lambda внутри let, без ошибок
+        "(let ((f (lambda (x) (* x x)))) (f 5))",
+    ])
+    def test_no_semantic_errors(self, code):
+        errors = self.analyze(code)
+        assert len(errors) == 0, f"Expected no errors, got {[e.message for e in errors]}"
