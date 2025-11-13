@@ -1,5 +1,5 @@
 from typing import List, Optional
-from semantic.errors import ArityError
+from semantic.errors import ArityError, SemanticError
 from semantic.scope import Scope
 from semantic.utils import get_position, extract_integer_literal
 from semantic.errors import DivisionByZeroError
@@ -42,6 +42,13 @@ class CallValidator:
                 f"Inline lambda expects {expected} args, got {got}",
                 line, col
             )
+        return None
+
+    def validate_format_call(self, args: List, ctx) -> Optional[SemanticError]:
+        """Проверяет, что format имеет хотя бы 2 аргумента (строка + значение)."""
+        if len(args) < 2:
+            line, col = get_position(ctx)
+            return ArityError("format requires at least 2 arguments (format-string & value)", line, col)
         return None
 
 

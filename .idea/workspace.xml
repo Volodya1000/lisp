@@ -5,21 +5,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="8e693500-f790-44e7-88bf-41a56897fc17" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/lab3.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/lab3.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error2.txt" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error2.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error3.txt" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error3.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error4.txt" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error4.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error5.txt" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error5.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/builtin_functions.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/builtin_functions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/errors.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/errors.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/scope.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/scope.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/semantic_analizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/semantic_analizer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/semantic_visitor.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/semantic_visitor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/symbol_info.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/symbol_info.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/semantic/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/semantic/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_parser.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_semantic_analyzer.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_semantic_analyzer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -160,6 +145,7 @@
       <workItem from="1761137070844" duration="1861000" />
       <workItem from="1762341179720" duration="6508000" />
       <workItem from="1762354179450" duration="49000" />
+      <workItem from="1763048494481" duration="664000" />
     </task>
     <servers />
   </component>
@@ -177,6 +163,6 @@
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/lab3$.coverage" NAME=" Coverage Results" MODIFIED="1762346751720" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/lab3$.coverage" NAME=" Coverage Results" MODIFIED="1763048524523" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -240,6 +240,10 @@ class SemanticVisitor(ANTLRBaseVisitor):
         if func_name == "/":
             self._check_division_by_zero(args)
 
+        if func_name == "format":
+            if error := self._call_validator.validate_format_call(args, ctx):
+                self._add_error(error)
+
     def _analyze_lambda_call(self, lambda_expr_ctx: object, args: List, ctx):
         """Валидирует вызов inline lambda."""
         # Извлекаем LambdaExprContext из ExprContext

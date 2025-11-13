@@ -214,7 +214,21 @@ class TestSemanticAnalyzer:
             assert len(call_errors) == 1, "Should detect attempt to call non-function"
             assert "add5" in call_errors[0].message, "Error should mention 'add5'"
 
-    # ===================== Оригинальные корректные примеры =====================
+    @pytest.mark.parametrize("code, expected_errors", [
+        ("(format \"Hello ~a\" \"World\")", 0),
+        ("(format \"Number: ~d\" 42)", 0),
+        ("(format)", 1),  # Ошибка: слишком мало аргументов
+        ("(read-line)", 0),
+        ("(read)", 0),
+        ("(parse-integer \"123\")", 0),
+        ("(parse-integer \" 123 \")", 0),
+        ("(read-from-string \"(+ 1 2)\")", 0),
+    ])
+    def test_io_functions(self, code, expected_errors):
+        errors = self.analyze(code)
+        assert len(errors) == expected_errors
+
+    # ===================== корректные примеры =====================
     @pytest.mark.parametrize("code", [
         # 1. let с одной переменной, корректное использование
         "(let ((x 10)) (+ x 5))",
