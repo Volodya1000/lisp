@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from antlr4 import InputStream, CommonTokenStream
 import gen.lisp_grammerLexer as LexerModule
@@ -11,6 +13,7 @@ from semantic.errors import (
     DivisionByZeroError,
 )
 
+EXAMPLES_DIR = "examples/work_examples"
 
 class TestSemanticAnalyzer:
     """Тесты семантического анализатора Lisp."""
@@ -248,3 +251,14 @@ class TestSemanticAnalyzer:
     def test_basic_no_errors(self, code):
         errors = self.analyze(code)
         assert len(errors) == 0, f"Expected no errors, got {[e.message for e in errors]}"
+
+    @pytest.mark.parametrize("filename", [
+        f for f in os.listdir(EXAMPLES_DIR) if f.endswith(".txt")
+    ])
+    def test_example_files_no_errors(self, filename):
+        """Проверяет, что все примеры из examples/work_examples обрабатываются без семантических ошибок."""
+        filepath = os.path.join(EXAMPLES_DIR, filename)
+        with open(filepath, "r", encoding="utf-8") as f:
+            code = f.read()
+        errors = self.analyze(code)
+        assert len(errors) == 0, f"Semantic errors found in {filename}: {[e.message for e in errors]}"
