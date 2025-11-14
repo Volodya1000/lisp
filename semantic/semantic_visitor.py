@@ -189,6 +189,10 @@ class SemanticVisitor(ANTLRBaseVisitor):
         func_expr = exprs[0]
         args = exprs[1:]
 
+        func_name = extract_symbol_name(func_expr)
+        if func_name == "defun":
+            return self._analyze_defun(args, ctx)
+
         # Анализируем само выражение вызова
         self._analyze_callable(func_expr, args, ctx)
 
@@ -197,6 +201,103 @@ class SemanticVisitor(ANTLRBaseVisitor):
             self.visit(arg)
 
         return None
+
+    def _analyze_defun(self, args: List, ctx):
+        """Анализирует (defun name (params) body...)."""
+
+        # 1. Проверка количества аргументов
+        if len(args) < 3:
+            line, col = get_position(ctx)
+            self._add_error(ArityError("defun requires name, parameter list, and body", line, col))
+            return
+
+        # 2. Имя функции
+        name_expr = args[0]
+        func_name = extract_symbol_name(name_expr)
+        if not func_name:
+            line, col = get_position(name_expr)
+            self._add_error(InvalidBindingError("defun requires a function name", line, col))
+            return
+
+        # 3. Список параметров
+        params_expr = args[1]
+
+        # ====== ГЛАВНОЕ ИСПРАВЛЕНИЕ: получаем ListContext из детей ======
+        param_list_ctx = None
+
+        # Попробуем получить детей и найти ListContext
+        if hasattr(params_expr, 'children') and params_expr.children:
+            for child in params_expr.children:
+                # child может быть TerminalNode или ParserRuleContext
+                child_type = type(child).__name__
+                print(f"Child: {child_type} = '{child.getText()}'")
+
+                # Проверяем, является ли child ListContext
+                if child_type == 'ListContext':
+                    param_list_ctx = child
+                    break
+
+        # Если не нашли в children, пробуем через getChild()
+        if param_list_ctx is None and hasattr(params_expr, 'getChildCount'):
+            for i in range(params_expr.getChildCount()):
+                child = params_expr.getChild(i)
+                child_type = type(child).__name__
+                print(f"getChild({i}): {child_type} = '{child.getText()}'")
+
+                if child_type == 'ListContext':
+                    param_list_ctx = child
+                    break
+
+        # Окончательная проверка
+        if param_list_ctx is None:
+            line, col = get_position(params_expr)
+            self._add_error(InvalidBindingError("defun requires a parameter list", line, col))
+            return
+
+        # 4. Извлекаем параметры из param_list_ctx
+        param_names = []
+        param_nodes = []
+
+        # Получаем все expr внутри списка параметров
+        if hasattr(param_list_ctx, 'expr'):
+            param_exprs = param_list_ctx.expr()
+
+            for pexpr in param_exprs:
+                # Каждый param_expr - это expr с atom -> SYMBOL
+                if hasattr(pexpr, "atom") and pexpr.atom() is not None:
+                    atom = pexpr.atom()
+
+                    if hasattr(atom, "SYMBOL") and atom.SYMBOL() is not None:
+                        symbol_node = atom.SYMBOL()
+                        symbol_name = symbol_node.getText()
+                        param_nodes.append(symbol_node)
+                        param_names.append(symbol_name)
+
+        if not param_names:
+            line, col = get_position(params_expr)
+            self._add_error(InvalidBindingError("Parameter list cannot be empty", line, col))
+            return
+
+        # 5. Проверяем дубликаты параметров
+        self._check_duplicate_names(param_names, param_nodes, "parameter name")
+
+        # 6. Определяем функцию в ГЛОБАЛЬНОМ scope
+        global_scope = self._scope_stack[0]
+        global_scope.define(func_name, SymbolInfo(func_name, SymbolKind.FUNCTION, len(param_names)))
+
+        # 7. Анализируем тело в новом scope
+        new_scope = self._enter_scope()
+        try:
+            for param in param_names:
+                new_scope.define(param, SymbolInfo(param, SymbolKind.VARIABLE))
+
+            self._call_validator = CallValidator(new_scope)
+
+            for body_expr in args[2:]:
+                self.visit(body_expr)
+        finally:
+            self._exit_scope()
+            self._call_validator = CallValidator(self.current_scope)
 
     def _analyze_callable(self, func_ctx, args: List, call_ctx):
         """Анализирует вызываемое выражение и валидирует вызов."""

@@ -285,3 +285,11 @@ class TestSemanticAnalyzer:
     ])
     def test_builtin_math(self, code):
         assert not self.analyze(code)
+
+    def test_forward_defun(self):
+        """defun ниже вызывает length, которая уже builtin."""
+        code = """
+        (defun doc-length (doc)
+          (length doc))
+        """
+        assert not self.analyze(code)
