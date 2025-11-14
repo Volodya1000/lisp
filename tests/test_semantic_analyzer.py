@@ -265,3 +265,10 @@ class TestSemanticAnalyzer:
 
         errors = self.analyze(code)
         assert len(errors) == 0, f"Semantic errors found in {filename}: {[e.message for e in errors]}"
+
+    @pytest.mark.parametrize("code", [
+        "(+ 1 2)", "(- 10 3)", "(* 4 5)", "(/ 20 4)",
+        "(= 1 1)", "(zerop 0)",
+    ])
+    def test_builtin_arith(self, code):
+        assert not self.analyze(code)

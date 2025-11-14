@@ -18,4 +18,6 @@ BUILTINS: Dict[str, SymbolInfo] = {
     "parse-integer": SymbolInfo("parse-integer", SymbolKind.BUILTIN, param_count=1),
     "read-from-string": SymbolInfo("read-from-string", SymbolKind.BUILTIN, param_count=1),
     "print": SymbolInfo("print", SymbolKind.BUILTIN, param_count=1),
+    "zerop": SymbolInfo("zerop", SymbolKind.BUILTIN, param_count=1),
+
 }
