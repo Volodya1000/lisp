@@ -271,3 +271,17 @@ class TestSemanticAnalyzer:
     ])
     def test_builtin_lists(self, code):
         assert not self.analyze(code)
+
+    @pytest.mark.parametrize("code", [
+        "(log 2)",
+        "(max 1 2 3)",
+    ])
+    def test_builtin_math(self, code):
+        assert not self.analyze(code)
+
+    @pytest.mark.parametrize("code", [
+        "(log 2)",
+        "(max 1 2 3)",
+    ])
+    def test_builtin_math(self, code):
+        assert not self.analyze(code)

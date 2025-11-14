@@ -28,4 +28,6 @@ BUILTINS: Dict[str, SymbolInfo] = {
     "equal":  SymbolInfo("equal",  SymbolKind.BUILTIN, param_count=2),
     ":test":  SymbolInfo(":test",  SymbolKind.BUILTIN, param_count=None),  # ключевой символ
     "#'equal": SymbolInfo("#'equal", SymbolKind.BUILTIN, param_count=None),
+    "log": SymbolInfo("log", SymbolKind.BUILTIN, param_count=1),
+    "max": SymbolInfo("max", SymbolKind.BUILTIN, param_count=None),
 }
