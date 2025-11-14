@@ -20,6 +20,7 @@ BUILTINS: Dict[str, SymbolInfo] = {
     "print": SymbolInfo("print", SymbolKind.BUILTIN, param_count=1),
     "zerop": SymbolInfo("zerop", SymbolKind.BUILTIN, param_count=1),
     "if":   SymbolInfo("if",   SymbolKind.BUILTIN, param_count=3),  # condition, then, else
+    "count-if": SymbolInfo("count-if", SymbolKind.BUILTIN, param_count=2),
     "#t":   SymbolInfo("#t",   SymbolKind.BUILTIN, param_count=None),  # true constant
     "#f":   SymbolInfo("#f",   SymbolKind.BUILTIN, param_count=None),  # false constant
     "nil":  SymbolInfo("nil",  SymbolKind.BUILTIN, param_count=None),  # empty list/false
