@@ -293,3 +293,12 @@ class TestSemanticAnalyzer:
           (length doc))
         """
         assert not self.analyze(code)
+
+    def test_mutual_recursion(self):
+        code = """
+           (defun even? (n)
+             (if (zerop n) #t (odd? (- n 1))))
+           (defun odd? (n)
+             (if (zerop n) #f (even? (- n 1))))
+           """
+        assert not self.analyze(code)
