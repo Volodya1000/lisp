@@ -23,4 +23,9 @@ BUILTINS: Dict[str, SymbolInfo] = {
     "#t":   SymbolInfo("#t",   SymbolKind.BUILTIN, param_count=None),  # true constant
     "#f":   SymbolInfo("#f",   SymbolKind.BUILTIN, param_count=None),  # false constant
     "nil":  SymbolInfo("nil",  SymbolKind.BUILTIN, param_count=None),  # empty list/false
+    "length": SymbolInfo("length", SymbolKind.BUILTIN, param_count=1),
+    "member": SymbolInfo("member", SymbolKind.BUILTIN, param_count=None),  # поддерживает ключевые аргументы
+    "equal":  SymbolInfo("equal",  SymbolKind.BUILTIN, param_count=2),
+    ":test":  SymbolInfo(":test",  SymbolKind.BUILTIN, param_count=None),  # ключевой символ
+    "#'equal": SymbolInfo("#'equal", SymbolKind.BUILTIN, param_count=None),
 }

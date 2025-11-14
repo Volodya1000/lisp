@@ -74,11 +74,15 @@ class SemanticVisitor(ANTLRBaseVisitor):
         # Проверка на неопределенный символ
         symbol_name = extract_symbol_name(ctx)
         if symbol_name is not None:
+            # ИГНОРИРУЕМ символы-reader-macros (#' :test и т.д.)
+            if symbol_name.startswith('#'):
+                return self.visitChildren(ctx)  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
+
             if self.current_scope.lookup(symbol_name) is None:
                 line, col = get_position(ctx)
                 self._add_error(NameErrorSemantic(f"Undefined symbol '{symbol_name}'", line, col))
 
-        # Рекурсивный обход дочерних узлов (например, quote)
+        # Рекурсивный обход дочерних узлов
         return self.visitChildren(ctx)
 
     def visitQuoteExpr(self, ctx):

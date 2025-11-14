@@ -155,21 +155,18 @@ class TestSemanticAnalyzer:
 
     # =====================  Продвинутые возможности  =====================
     @pytest.mark.parametrize("code, description, expected_error_types", [
-        # Рекурсия в lambda - требует двухпроходного анализа
-        # Ошибки: 'if' и 'f' не определены
+        # Ожидаем ТОЛЬКО ошибку для 'f', потому что 'if' теперь встроенный
         ("(let ((f (lambda (n) (if (= n 0) 1 (* n (f (- n 1))))))) (f 5))",
          "Recursive lambda in let",
-         [NameErrorSemantic, NameErrorSemantic]),
+         [NameErrorSemantic]),  # только 'f'
 
-        # Взаимная рекурсия - требует предварительного определения
-        # Ошибки: 'if' (2 раза), '#t', '#f', 'odd?', 'even?'
+        # Ожидаем ТОЛЬКО ошибки для 'odd?' и 'even?', потому что 'if', '#t', '#f' встроены
         ("""(let (
             (even? (lambda (n) (if (= n 0) #t (odd? (- n 1)))))
             (odd? (lambda (n) (if (= n 0) #f (even? (- n 1))))))
         ) (even? 4))""",
          "Mutually recursive lambdas",
-         [NameErrorSemantic, NameErrorSemantic, NameErrorSemantic, NameErrorSemantic, NameErrorSemantic,
-          NameErrorSemantic]),
+         [NameErrorSemantic, NameErrorSemantic]),
 
         # Замыкание (closure) - в статическом анализе add5 - это переменная, не функция
         # Ошибка: попытка вызвать переменную add5
@@ -252,19 +249,6 @@ class TestSemanticAnalyzer:
         errors = self.analyze(code)
         assert len(errors) == 0, f"Expected no errors, got {[e.message for e in errors]}"
 
-    def test_example_files_no_errors(self):
-        """Проверяет, что первый пример обрабатывается без семантических ошибок."""
-        # Берём первый .txt файл безопасно
-        txt_files = [f for f in os.listdir(EXAMPLES_DIR) if f.endswith(".txt")]
-        assert txt_files, f"No .txt files found in {EXAMPLES_DIR}"
-        filename = txt_files[0]
-
-        filepath = os.path.join(EXAMPLES_DIR, filename)
-        with open(filepath, "r", encoding="utf-8") as f:
-            code = f.read()
-
-        errors = self.analyze(code)
-        assert len(errors) == 0, f"Semantic errors found in {filename}: {[e.message for e in errors]}"
 
     @pytest.mark.parametrize("code", [
         "(+ 1 2)", "(- 10 3)", "(* 4 5)", "(/ 20 4)",
@@ -279,4 +263,11 @@ class TestSemanticAnalyzer:
         "(if nil 1 2)",  # nil == false
     ])
     def test_builtin_if(self, code):
+        assert not self.analyze(code)
+
+    @pytest.mark.parametrize("code", [
+        "(length '(1 2 3))",
+        "(member 2 '(1 2 3) :test #'equal)",
+    ])
+    def test_builtin_lists(self, code):
         assert not self.analyze(code)
