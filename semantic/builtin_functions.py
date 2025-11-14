@@ -19,5 +19,8 @@ BUILTINS: Dict[str, SymbolInfo] = {
     "read-from-string": SymbolInfo("read-from-string", SymbolKind.BUILTIN, param_count=1),
     "print": SymbolInfo("print", SymbolKind.BUILTIN, param_count=1),
     "zerop": SymbolInfo("zerop", SymbolKind.BUILTIN, param_count=1),
-
+    "if":   SymbolInfo("if",   SymbolKind.BUILTIN, param_count=3),  # condition, then, else
+    "#t":   SymbolInfo("#t",   SymbolKind.BUILTIN, param_count=None),  # true constant
+    "#f":   SymbolInfo("#f",   SymbolKind.BUILTIN, param_count=None),  # false constant
+    "nil":  SymbolInfo("nil",  SymbolKind.BUILTIN, param_count=None),  # empty list/false
 }

@@ -272,3 +272,11 @@ class TestSemanticAnalyzer:
     ])
     def test_builtin_arith(self, code):
         assert not self.analyze(code)
+
+    @pytest.mark.parametrize("code", [
+        "(if #t 1 2)",
+        "(if #f 1 2)",
+        "(if nil 1 2)",  # nil == false
+    ])
+    def test_builtin_if(self, code):
+        assert not self.analyze(code)

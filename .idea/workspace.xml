@@ -58,7 +58,7 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
-  <component name="RunManager" selected="Python tests.Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_arith">
+  <component name="RunManager" selected="Python tests.Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_if">
     <configuration name="lab3" type="Python.FastAPI">
       <option name="file" value="$PROJECT_DIR$/main.py" />
       <module name="lab3" />
@@ -122,7 +122,7 @@
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
-    <configuration name="Python tests for tests.test_semantic_analyzer.test_name_error" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
+    <configuration name="Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_if" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
       <module name="lab3" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -134,7 +134,7 @@
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="_new_additionalArguments" value="&quot;&quot;" />
-      <option name="_new_target" value="&quot;tests.test_semantic_analyzer.test_name_error&quot;" />
+      <option name="_new_target" value="&quot;tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_if&quot;" />
       <option name="_new_targetType" value="&quot;PYTHON&quot;" />
       <method v="2" />
     </configuration>
@@ -156,11 +156,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python tests.Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_if" />
         <item itemvalue="Python tests.Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer.test_builtin_arith" />
         <item itemvalue="Python tests.Python tests for tests.test_semantic_analyzer.TestSemanticAnalyzer" />
         <item itemvalue="Python tests.Python tests for test_semantic_analyzer.TestSemanticAnalyzer.test_example_files_no_errors.test_builtin_arith" />
         <item itemvalue="Python tests.Python tests in tests" />
-        <item itemvalue="Python tests.Python tests for tests.test_semantic_analyzer.test_name_error" />
       </list>
     </recent_temporary>
   </component>
