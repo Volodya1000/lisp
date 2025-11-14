@@ -5,7 +5,7 @@ from semantic.builtin_functions import BUILTINS
 from semantic.scope import Scope
 from semantic.symbol_info import SymbolInfo, SymbolKind
 from semantic.semantic_visitor import SemanticVisitor
-
+from typing import List, Optional, Tuple
 
 class SemanticAnalyzer:
     def __init__(self):
