@@ -270,10 +270,24 @@ class SemanticAnalyzer(lispVisitor):
         node.args = [arg.accept(self) for arg in node.args]
         return node
 
-    def visit_setq(self, node):
-        node.value = node.value.accept(self)
-        return node
+    def visit_setq(self, node: SetqNode):
+        # Скомпилировать вычисление значения (оно попадет на стек WASM)
+        node.value.accept(self)
 
+        # Найти, куда сохранить
+        info = self.current_env.resolve(node.var_name)
+
+        if info and info.wasm_loc_idx is not None:
+            # Если переменная уже есть (аргумент), перезаписываем
+            self.emit(f'local.set {info.wasm_loc_idx}')
+            # Setq в Lisp обычно возвращает значение, но local.set "съедает" его со стека.
+            # Чтобы вернуть значение, нужно сначала сделать local.tee (set + get)
+            self.emit(f'local.get {info.wasm_loc_idx}')
+        else:
+            # Если переменной нет, в WASM её нужно объявить в заголовке функции.
+            # Это сложнее: компилятор должен работать в два прохода (сначала найти все setq, объявить locals, потом код).
+            # ДЛЯ MVP: Разрешайте setq только для существующих аргументов.
+            raise RuntimeError("Setq is only allowed for existing arguments in MVP")
     def visit_cond(self, node):
         new_clauses = []
         for pred, body in node.clauses:

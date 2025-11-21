@@ -14,7 +14,12 @@ class SymbolInfo:
     is_special_form: bool = False
     is_primitive: bool = False
     value: Any = None
-    env_level: int = 0  # Уровень вложенности (для замыканий)
+    env_level: int = 0
+
+    # None, если символ не используется в WASM (например, макрос) или еще не назначен.
+    # Int, если это локальная переменная (индекс WASM).
+    # String, если это глобальная переменная (имя WASM global, например "$var").
+    wasm_loc_idx: Optional[int] = None
 
 
 class Environment:
@@ -37,6 +42,10 @@ class Environment:
         self.symbols: Dict[str, SymbolInfo] = {}
         self.level = parent.level + 1 if parent else 0
 
+        # Счетчик локальных переменных для текущей области видимости (функции)
+        # Если это глобальный scope, счетчик не используется.
+        self.next_local_idx = 0
+
     def define(self, name: str, is_function: bool = False, value: Any = None) -> SymbolInfo:
         """Определить новый символ в текущем окружении"""
         if name in self.PRIMITIVES:
@@ -52,7 +61,8 @@ class Environment:
             is_special_form=is_special,
             is_primitive=is_primitive,
             value=value,
-            env_level=self.level
+            env_level=self.level,
+            wasm_loc_idx = None
         )
         self.symbols[name] = info
         return info
@@ -85,6 +95,16 @@ class Environment:
         """Является ли символ захваченным замыканием?"""
         info = self.resolve(name)
         return info and info.env_level < self.level
+
+    def define_wasm_local(self, name: str) -> int:
+        """
+        Регистрирует переменную как локальную для WASM и выдает ей следующий индекс.
+        Используется только на этапе компиляции внутри функций.
+        """
+        info = self.define(name, is_function=False)
+        info.wasm_loc_idx = self.next_local_idx
+        self.next_local_idx += 1
+        return info.wasm_loc_idx
 
     def __repr__(self):
         return f"Env(level={self.level}, symbols={list(self.symbols.keys())})"
