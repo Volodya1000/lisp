@@ -52,38 +52,36 @@ class WasmCompiler(ASTVisitor):
         return wat
 
     # --- Новые методы ---
-
     def visit_defun(self, node: DefunNode):
-        # 1. Создаем новый Scope (Parent = Global)
+        # 1. Создаем новый Scope
         func_env = Environment(parent=self.global_env)
-
-        # Переключаем контекст
         previous_env = self.current_env
         self.current_env = func_env
 
-        # 2. Регистрируем параметры как локальные переменные (idx 0, 1...)
-        # Это создаст записи в func_env с wasm_loc_idx
+        # 2. Регистрируем параметры
         for param_name in node.params:
             self.current_env.define_wasm_local(param_name)
 
-        # 3. Компилируем тело функции
-        body_code = []
-        for expr in node.body:
-            body_code.append(expr.accept(self))
+        # 3. Компилируем тело (ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД)
+        # Вместо ручного цикла используем _compile_body, который добавляет drop
+        body_wat = self._compile_body(node.body)
 
         # 4. Восстанавливаем контекст
         self.current_env = previous_env
 
         # 5. Формируем WAT код функции
-        # (func $name (param f64)... (result f64) ...body...)
         params_wat = " ".join(["(param f64)" for _ in node.params])
 
         func_wat = f'  (func ${node.name} {params_wat} (result f64)\n'
-        func_wat += "\n".join([f'    {line}' for line in body_code])
-        func_wat += '\n  )'
+
+        # Добавляем отступы для красоты и вставляем тело
+        for line in body_wat.split('\n'):
+            func_wat += f'    {line}\n'
+
+        func_wat += '  )'
 
         self.funcs_code.append(func_wat)
-        return ""  # defun ничего не возвращает в main flow
+        return ""
 
     def visit_symbol(self, node: SymbolNode) -> str:
         info = self.current_env.resolve(node.name)
@@ -118,14 +116,6 @@ class WasmCompiler(ASTVisitor):
 
     def visit_number(self, node: NumberNode) -> str:
         return f"f64.const {node.value}"
-
-    def visit_prim_call(self, node: PrimCallNode) -> str:
-        op_map = {'+': 'f64.add', '-': 'f64.sub', '*': 'f64.mul', '/': 'f64.div'}
-        if node.prim_name not in op_map:
-            raise NotImplementedError(f"Primitive '{node.prim_name}' not supported")
-
-        args_code = [arg.accept(self) for arg in node.args]
-        return "\n    ".join(args_code) + f"\n    {op_map[node.prim_name]}"
 
     def _emit_bool_check(self) -> str:
         """
@@ -185,21 +175,26 @@ class WasmCompiler(ASTVisitor):
         return code
 
     def _compile_body(self, nodes: List[ASTNode]) -> str:
-        """Компилирует список выражений, оставляя на стеке только результат последнего"""
+        """
+        Компилирует последовательность выражений.
+        Результат всех, кроме последнего, удаляется со стека (drop).
+        """
         if not nodes:
             return "f64.const 0.0"
 
         lines = []
-        # Для всех кроме последнего нужно добавить 'drop', если они оставляют значение на стеке.
-        # Для MVP пока предположим, что body состоит из одного выражения (как часто в чисто функциональном стиле)
-        # или просто выполним их.
-        # ВНИМАНИЕ: WASM строг к типам стека. (block (result f64) ... ) ожидает, что внутри
-        # стек будет сбалансирован.
+        # Перебираем все выражения, кроме последнего
+        for i in range(len(nodes) - 1):
+            code = nodes[i].accept(self)
+            lines.append(code)
+            # Lisp-выражения всегда возвращают значение (f64).
+            # Мы должны убрать его со стека, так как оно не является возвращаемым значением функции.
+            lines.append("    drop")
 
-        # Простая реализация: компилируем все, но считаем, что только последнее важно.
-        # Чтобы это работало корректно с drop, нужно знать возвращает ли нода значение.
-        # Пока просто выполним последнее (так как setq мы еще полноценно не внедрили, side-effects мало)
-        return nodes[-1].accept(self)
+        # Последнее выражение оставляем на стеке как результат блока
+        lines.append(nodes[-1].accept(self))
+
+        return "\n".join(lines)
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
         # Словарь должен включать и математику, и сравнения
@@ -215,6 +210,14 @@ class WasmCompiler(ASTVisitor):
             '<=': 'f64.le',
             '>=': 'f64.ge'
         }
+        if node.prim_name == 'not':
+            # (not x) -> (x == 0.0)
+            # Если x != 0, это true. not делает инверсию.
+            # В нашей логике (0.0 = false, остальное true).
+            # Реализация: сравнить с 0.0. Если равно -> 1 (True), иначе 0 (False).
+            if len(node.args) != 1: raise RuntimeError("not takes 1 arg")
+            val = node.args[0].accept(self)
+            return f"{val}\n    f64.const 0.0\n    f64.eq\n    f64.convert_i32_s"
 
         if node.prim_name not in op_map:
             raise NotImplementedError(f"Primitive '{node.prim_name}' not supported in WASM")
@@ -234,11 +237,33 @@ class WasmCompiler(ASTVisitor):
 
         return code
 
+
     def visit_true(self, node):
         return "f64.const 1.0"
 
     def visit_nil(self, node):
         return "f64.const 0.0"
+
+    def visit_setq(self, node: SetqNode) -> str:
+        """
+        (setq x 10)
+        В Lisp setq возвращает присвоенное значение.
+        В WASM local.set забирает значение со стека.
+        Решение: local.tee (set + оставить копию на стеке).
+        """
+        # 1. Вычисляем новое значение
+        val_code = node.value.accept(self)
+
+        # 2. Находим индекс переменной
+        info = self.current_env.resolve(node.var_name)
+        if not info:
+            raise RuntimeError(f"Variable '{node.var_name}' not defined")
+
+        if info.wasm_loc_idx is not None:
+            # local.tee $i сохраняет значение в локал и оставляет его на стеке
+            return f"{val_code}\n    local.tee {info.wasm_loc_idx}"
+        else:
+            raise NotImplementedError("Global setq not supported yet")
     # Заглушки
     def visit_string(self, node):
         raise NotImplementedError()
@@ -255,5 +280,4 @@ class WasmCompiler(ASTVisitor):
     def visit_lambda(self, node):
         raise NotImplementedError()
 
-    def visit_setq(self, node):
-        raise NotImplementedError()
+
