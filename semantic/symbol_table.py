@@ -29,7 +29,7 @@ class Environment:
 
     # Специальные формы (не функции)
     SPECIAL_FORMS = {
-        'quote', 'lambda', 'cond', 'setq'
+        'quote', 'lambda', 'cond', 'setq', 'defun'
     }
 
     def __init__(self, parent: Optional['Environment'] = None):

@@ -44,6 +44,9 @@ class ASTVisitor(ABC):
     @abstractmethod
     def visit_cond(self, node: 'CondNode') -> Any: pass
 
+    @abstractmethod
+    def visit_defun(self, node: 'DefunNode') -> Any: pass
+
 
 class ASTNode(ABC):
     """Базовый класс для всех AST узлов"""
@@ -184,3 +187,15 @@ class ListNode(ASTNode):
 
     def __repr__(self):
         return f"List({self.elements})"
+
+class DefunNode(ASTNode):
+    def __init__(self, name: str, params: List[str], body: List[ASTNode]):
+        self.name = name
+        self.params = params
+        self.body = body
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_defun(self)
+
+    def __repr__(self):
+        return f"Defun({self.name}, {self.params}, {len(self.body)} exprs)"
