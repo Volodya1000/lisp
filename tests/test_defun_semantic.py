@@ -87,10 +87,10 @@ class TestDefunErrors(BaseSemanticTest):
 
     def test_defun_params_not_list(self):
         """Параметры не являются списком"""
-        with pytest.raises(SyntaxError, match="Параметры defun должны быть списком"):
+        with pytest.raises(SyntaxError, match="Ожидался список параметров"):
             self.parse_and_analyze("(defun f 123 x)")
 
     def test_defun_invalid_param_type(self):
         """В списке параметров не символы"""
-        with pytest.raises(SyntaxError, match="Параметр defun должен быть символом"):
+        with pytest.raises(SyntaxError, match="Параметр должен быть символом"):
             self.parse_and_analyze("(defun f (x 1) x)")

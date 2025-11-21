@@ -18,7 +18,7 @@ class TestErrorCases(BaseSemanticTest):
 
     def test_lambda_params_not_list(self):
         """Параметры не являются списком"""
-        with pytest.raises(SyntaxError, match="Параметры lambda должны быть списком"):
+        with pytest.raises(SyntaxError, match="Ожидался список параметров"):
             self.parse_and_analyze("(lambda x (+ x 1))")
 
     def test_lambda_param_not_symbol(self):

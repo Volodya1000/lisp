@@ -41,6 +41,32 @@ class SemanticAnalyzer(lispVisitor):
         else:
             return self.visit(ctx.list_())
 
+    # Внутри SemanticAnalyzer
+
+    def _extract_params(self, params_ast: ASTNode) -> List[str]:
+        elements = []
+        # Пытаемся "распаковать" структуру, которую вернул visit()
+        if isinstance(params_ast, ListNode):
+            elements = params_ast.elements
+        elif isinstance(params_ast, CallNode):
+            # Исправление ошибки парсера: (a b) распознано как вызов
+            elements = [params_ast.func] + params_ast.args
+        elif isinstance(params_ast, PrimCallNode):
+            # Исправление ошибки парсера: (list a) распознано как примитив
+            elements = [SymbolNode(params_ast.prim_name)] + params_ast.args
+        elif isinstance(params_ast, NilNode):
+            elements = []
+        else:
+            raise SyntaxError(f"Ожидался список параметров, получено: {params_ast}")
+
+        params = []
+        for p in elements:
+            if isinstance(p, SymbolNode):
+                params.append(p.name)
+            else:
+                raise SyntaxError(f"Параметр должен быть символом: {p}")
+        return params
+
     def visitAtom(self, ctx: lispParser.AtomContext) -> ASTNode:
         """atom: NUMBER | STRING | SYMBOL | QUOTE sexpr | NIL | TRUE;"""
         if ctx.NUMBER():
@@ -181,34 +207,18 @@ class SemanticAnalyzer(lispVisitor):
 
     def _handle_lambda_lazy(self, raw_args: List[lispParser.SexprContext]) -> LambdaNode:
         if len(raw_args) < 2:
-            # Сообщение для test_lambda_no_args
             raise SyntaxError("lambda требует параметры и тело")
 
+        # 1. Извлекаем параметры
         params_ast = self.visit(raw_args[0])
-        params = []
+        params = self._extract_params(params_ast)
 
-        elements = []
-        if isinstance(params_ast, ListNode):
-            elements = params_ast.elements
-        elif isinstance(params_ast, CallNode):
-            elements = [params_ast.func] + params_ast.args
-        elif isinstance(params_ast, NilNode):
-            elements = []
-        else:
-            # Сообщение для test_lambda_params_not_list
-            raise SyntaxError("Параметры lambda должны быть списком")
-
-        for p in elements:
-            if isinstance(p, SymbolNode):
-                params.append(p.name)
-            else:
-                # Сообщение для test_lambda_param_not_symbol
-                raise SyntaxError(f"Параметр {p} должен быть символом")
-
+        # 2. Создаем новое окружение для замыкания
         lambda_env = Environment(self.current_env)
         for param in params:
             lambda_env.define(param, is_function=False)
 
+        # 3. Анализируем тело функции в новом окружении
         old_env = self.current_env
         self.current_env = lambda_env
         try:
@@ -290,37 +300,16 @@ class SemanticAnalyzer(lispVisitor):
         name_node = self.visit(raw_args[0])
         if not isinstance(name_node, SymbolNode):
             raise SyntaxError(f"Имя функции в defun должно быть символом, получено: {name_node}")
-
         func_name = name_node.name
 
+        # 2. Регистрируем функцию в текущем окружении
         self.current_env.define(func_name, is_function=True)
 
-        # 2. Параметры
+        # 3. Извлекаем параметры
         params_ast = self.visit(raw_args[1])
-        params = []
-        elements = []
+        params = self._extract_params(params_ast)
 
-        if isinstance(params_ast, ListNode):
-            elements = params_ast.elements
-        elif isinstance(params_ast, CallNode):
-            # Если (x y) было распознано как вызов пользовательской функции
-            elements = [params_ast.func] + params_ast.args
-        elif isinstance(params_ast, PrimCallNode):
-            # ДОБАВЛЕНО: Если (list) или (cons x y) распознано как вызов примитива.
-            # Восстанавливаем первый элемент как SymbolNode из имени примитива.
-            elements = [SymbolNode(params_ast.prim_name)] + params_ast.args
-        elif isinstance(params_ast, NilNode):
-            elements = []
-        else:
-            raise SyntaxError(f"Параметры defun должны быть списком, получено: {params_ast}")
-
-        for p in elements:
-            if isinstance(p, SymbolNode):
-                params.append(p.name)
-            else:
-                raise SyntaxError(f"Параметр defun должен быть символом, получено: {p}")
-
-        # 3. Тело функции
+        # 4. Создаем окружение функции и анализируем тело
         func_env = Environment(self.current_env)
         for param in params:
             func_env.define(param, is_function=False)
@@ -334,33 +323,4 @@ class SemanticAnalyzer(lispVisitor):
 
         return DefunNode(func_name, params, body_nodes)
 
-    # Базовые типы
-    def visit_symbol(self, node):
-        return node
 
-    def visit_number(self, node):
-        return node
-
-    def visit_string(self, node):
-        return node
-
-    def visit_nil(self, node):
-        return node
-
-    def visit_true(self, node):
-        return node
-
-    def visit_quote(self, node):
-        return node
-
-    def visit_list(self, node):
-        return node
-
-    def visit_defun(self, node: DefunNode):
-        # При повторном посещении AST (например, компилятором),
-        # мы просто возвращаем узел или генерируем код.
-        # Если нужно пере-анализировать тело (редкий кейс для static analysis):
-        # old_env = self.current_env
-        # # Здесь сложнее восстановить func_env без сохранения его в Node,
-        # # но обычно SemanticAnalyzer запускается один раз для построения AST.
-        return node
