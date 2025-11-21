@@ -1,62 +1,32 @@
-import unittest
-import antlr4
-from gen.lispLexer import lispLexer
-from gen.lispParser import lispParser
-from semantic.semantic_analyzer import SemanticAnalyzer
-from compiler.wasm_compiler import WasmCompiler
+from tests.wasm_compiler_tests.base_wasm_test import WasmCompilerTestCase
 
+class TestMathOps(WasmCompilerTestCase):
 
-class TestWasmMath(unittest.TestCase):
-    def compile_code(self, lisp_code: str) -> str:
-        # 1. Lexer & Parser
-        input_stream = antlr4.InputStream(lisp_code)
-        lexer = lispLexer(input_stream)
-        stream = antlr4.CommonTokenStream(lexer)
-        parser = lispParser(stream)
-        tree = parser.program()
+    def test_simple_arithmetic(self):
+        """Тестирование базовых арифметических операций по одной"""
+        self.assert_evaluates("42", 42.0)
+        self.assert_evaluates("(+ 10 20)", 30.0)
+        self.assert_evaluates("(/ 10 2)", 5.0)
 
-        # 2. Semantic Analysis (AST)
-        analyzer = SemanticAnalyzer()
-        ast = analyzer.visit(tree)
+    def test_nested_expressions(self):
+        """Тестирование вложенности"""
+        # (1 + 2) * 3 = 9
+        wat = self.assert_evaluates("(* (+ 1 2) 3)", 9.0)
+        # Проверка структуры WAT все еще возможна, так как метод возвращает строку
+        self.assertIn("f64.mul", wat)
 
-        # 3. Compilation (WAT)
-        compiler = WasmCompiler()
-        return compiler.compile(ast)
+    def test_complex_math_parametrized(self):
+        test_cases = [
+            # (Код Lisp, Ожидаемый результат)
+            ("(- 10 4)", 6.0),
+            ("(* 5 5)", 25.0),
+            ("(/ 100 10)", 10.0),
+            ("(+ (* 2 2) (* 3 3))", 13.0),  # 4 + 9
+            ("(/ (+ 10 20) (- 10 5))", 6.0),  # 30 / 5
+            ("(* (+ 1 2) (+ 3 4))", 21.0),  # 3 * 7
+        ]
 
-    def test_simple_number(self):
-        wat = self.compile_code("42")
-        # Проверяем, что число есть в выводе
-        self.assertIn("f64.const 42.0", wat)
-        self.assertIn("(export \"main\")", wat)
+        for code, expected in test_cases:
+            with self.subTest(code=code, expected=expected):
+                self.assert_evaluates(code, expected)
 
-    def test_addition(self):
-        wat = self.compile_code("(+ 10 20)")
-        # Ожидаем порядок: 10, 20, add
-        expected_snippet = """f64.const 10.0
-    f64.const 20.0
-    f64.add"""
-        self.assertIn(expected_snippet, wat)
-
-    def test_nested_math(self):
-        # (* (+ 1 2) 3) -> (1 + 2) * 3
-        wat = self.compile_code("(* (+ 1 2) 3)")
-
-        # Порядок выполнения в стековой машине:
-        # 1. (+ 1 2) вычисляется первым -> кладет 3 на стек
-        # 2. 3 кладется на стек
-        # 3. * умножает
-
-        expected_snippet = """f64.const 1.0
-    f64.const 2.0
-    f64.add
-    f64.const 3.0
-    f64.mul"""
-        self.assertIn(expected_snippet, wat)
-
-    def test_division(self):
-        wat = self.compile_code("(/ 10 2)")
-        self.assertIn("f64.div", wat)
-
-
-if __name__ == '__main__':
-    unittest.main()
