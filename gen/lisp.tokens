@@ -1,0 +1,15 @@
+T__0=1
+T__1=2
+SYMBOL=3
+NUMBER=4
+STRING=5
+QUOTE=6
+NIL=7
+TRUE=8
+COMMENT=9
+WS=10
+'('=1
+')'=2
+'\''=6
+'nil'=7
+'t'=8
