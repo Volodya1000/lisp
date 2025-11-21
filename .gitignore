@@ -1,9 +1,15 @@
-# IDE
-.idea/
-
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .venv/
 
+# IDE / редакторы
+.idea/
+*.iml
+.vscode/
 
+# Логи и временные файлы
+*.log
+*.tmp
