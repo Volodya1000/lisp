@@ -29,7 +29,8 @@ class Environment:
     PRIMITIVES = {
         'cons', 'car', 'cdr', 'atom', 'eq',
         '+', '-', '*', '/',
-        'print', 'list', '='
+        'print', 'list', '=',
+        '<', '>', '<=', '>='
     }
 
     # Специальные формы (не функции)

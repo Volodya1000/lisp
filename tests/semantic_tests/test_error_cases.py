@@ -1,6 +1,6 @@
 import pytest
 
-from tests.base_semantic_test import BaseSemanticTest
+from tests.semantic_tests.base_semantic_test import BaseSemanticTest
 
 
 class TestErrorCases(BaseSemanticTest):

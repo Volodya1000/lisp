@@ -115,7 +115,6 @@ class WasmCompiler(ASTVisitor):
         code += f"\n    call ${func_name}"
         return code
 
-    # --- Старые методы (без изменений) ---
 
     def visit_number(self, node: NumberNode) -> str:
         return f"f64.const {node.value}"
@@ -128,15 +127,124 @@ class WasmCompiler(ASTVisitor):
         args_code = [arg.accept(self) for arg in node.args]
         return "\n    ".join(args_code) + f"\n    {op_map[node.prim_name]}"
 
+    def _emit_bool_check(self) -> str:
+        """
+        Превращает f64 на вершине стека в i32 (для инструкции if).
+        Логика: (value != 0.0)
+        """
+        return "f64.const 0.0\n    f64.ne"
+
+    def visit_cond(self, node: CondNode) -> str:
+        """
+        cond: (cond (p1 e1...) (p2 e2...) ... )
+        WASM: (if (result f64) p1 (then e1...) (else (if p2 ...)))
+        """
+        if not node.clauses:
+            # Если cond пустой, возвращаем nil (0.0)
+            return "f64.const 0.0"
+
+        # Берем первую ветку
+        pred_node, body_nodes = node.clauses[0]
+
+        # 1. Компилируем условие
+        # Специальный случай: если условие TrueNode или 't', это всегда true
+        is_always_true = isinstance(pred_node, TrueNode) or (
+                    isinstance(pred_node, SymbolNode) and pred_node.name == 't')
+
+        if is_always_true:
+            # Оптимизация: просто генерируем тело, остальное отбрасываем
+            return self._compile_body(body_nodes)
+
+        code = pred_node.accept(self)
+
+        # 2. Превращаем результат условия (f64) в boolean (i32) для WASM
+        code += f"\n    {self._emit_bool_check()}"
+
+        # 3. Начало if
+        code += "\n    (if (result f64)"
+
+        # 4. Блок THEN
+        code += "\n      (then"
+        code += "\n        " + self._compile_body(body_nodes).replace("\n", "\n        ")
+        code += "\n      )"
+
+        # 5. Блок ELSE (рекурсивно обрабатываем оставшиеся ветки)
+        # Создаем фиктивный CondNode для хвоста
+        rest_clauses = node.clauses[1:]
+        if rest_clauses:
+            rest_cond = CondNode(rest_clauses)
+            else_code = self.visit_cond(rest_cond)
+            code += "\n      (else"
+            code += "\n        " + else_code.replace("\n", "\n        ")
+            code += "\n      )"
+        else:
+            # Если веток больше нет, возвращаем 0.0 (nil)
+            code += "\n      (else f64.const 0.0)"
+
+        code += "\n    )"  # Закрываем if
+        return code
+
+    def _compile_body(self, nodes: List[ASTNode]) -> str:
+        """Компилирует список выражений, оставляя на стеке только результат последнего"""
+        if not nodes:
+            return "f64.const 0.0"
+
+        lines = []
+        # Для всех кроме последнего нужно добавить 'drop', если они оставляют значение на стеке.
+        # Для MVP пока предположим, что body состоит из одного выражения (как часто в чисто функциональном стиле)
+        # или просто выполним их.
+        # ВНИМАНИЕ: WASM строг к типам стека. (block (result f64) ... ) ожидает, что внутри
+        # стек будет сбалансирован.
+
+        # Простая реализация: компилируем все, но считаем, что только последнее важно.
+        # Чтобы это работало корректно с drop, нужно знать возвращает ли нода значение.
+        # Пока просто выполним последнее (так как setq мы еще полноценно не внедрили, side-effects мало)
+        return nodes[-1].accept(self)
+
+    def visit_prim_call(self, node: PrimCallNode) -> str:
+        # Словарь должен включать и математику, и сравнения
+        op_map = {
+            '+': 'f64.add',
+            '-': 'f64.sub',
+            '*': 'f64.mul',
+            '/': 'f64.div',
+            # Сравнения
+            '=': 'f64.eq',
+            '<': 'f64.lt',
+            '>': 'f64.gt',
+            '<=': 'f64.le',
+            '>=': 'f64.ge'
+        }
+
+        if node.prim_name not in op_map:
+            raise NotImplementedError(f"Primitive '{node.prim_name}' not supported in WASM")
+
+        # 1. Компилируем аргументы
+        args_code = [arg.accept(self) for arg in node.args]
+        code = "\n    ".join(args_code)
+
+        # 2. Добавляем операцию
+        op = op_map[node.prim_name]
+        code += f"\n    {op}"
+
+        # 3.  Конвертация типа для сравнений
+        # Результат сравнения в WASM это i32 (0 или 1). Нам нужно f64.
+        if node.prim_name in ['=', '<', '>', '<=', '>=']:
+            code += "\n    f64.convert_i32_s"
+
+        return code
+
+    def visit_true(self, node):
+        return "f64.const 1.0"
+
+    def visit_nil(self, node):
+        return "f64.const 0.0"
     # Заглушки
     def visit_string(self, node):
         raise NotImplementedError()
 
-    def visit_nil(self, node):
-        raise NotImplementedError()
 
-    def visit_true(self, node):
-        raise NotImplementedError()
+
 
     def visit_quote(self, node):
         raise NotImplementedError()
@@ -148,7 +256,4 @@ class WasmCompiler(ASTVisitor):
         raise NotImplementedError()
 
     def visit_setq(self, node):
-        raise NotImplementedError()
-
-    def visit_cond(self, node):
         raise NotImplementedError()
