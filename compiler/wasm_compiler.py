@@ -58,7 +58,7 @@ class WasmCompiler(ASTVisitor):
 
     def _get_globals_definitions(self) -> str:
         code = '  (global $heap_ptr (mut i32) (i32.const 8))\n'
-        # Временная переменная для реализации OR
+        # Временная переменная для OR и свопов
         code += '  (global $scratch (mut f64) (f64.const 0.0))\n'
         for g_var in self.global_vars:
             code += f'  (global ${g_var} (mut f64) (f64.const 0.0))\n'
@@ -143,14 +143,12 @@ class WasmCompiler(ASTVisitor):
         end
     end
   )
-  ;; (length "str")
   (func $std_length (param $ptr f64) (result f64)
     local.get $ptr
     i32.trunc_f64_u
     i32.load
     f64.convert_i32_u
   )
-  ;; (str-concat "a" "b")
   (func $std_str_concat (param $a f64) (param $b f64) (result f64)
     (local $addr_a i32)
     (local $len_a i32)
@@ -275,9 +273,12 @@ class WasmCompiler(ASTVisitor):
     def _compile_block(self, nodes: List[ASTNode]) -> str:
         if not nodes:
             return "f64.const 0.0"
+
         lines = []
         for i, node in enumerate(nodes):
             res = node.accept(self)
+            if res is None:
+                raise RuntimeError(f"Compilation failed for node: {node}")
             lines.append(res)
             if i < len(nodes) - 1:
                 lines.append("drop")
@@ -287,7 +288,7 @@ class WasmCompiler(ASTVisitor):
         prefix = " " * spaces
         return "\n".join([prefix + line for line in code.split('\n')])
 
-    # --- Visitor Methods ---
+    # --- Visitor Implementation ---
 
     def visit_defun(self, node: DefunNode):
         func_env = Environment(parent=self.global_env)
@@ -308,8 +309,10 @@ class WasmCompiler(ASTVisitor):
         func_name = node.func.name if isinstance(node.func, SymbolNode) else None
         if func_name == 'princ':
             return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
+
         if not func_name:
             raise NotImplementedError("Indirect calls not supported")
+
         args_code = "\n".join([arg.accept(self) for arg in node.args])
         return f"{args_code}\ncall ${func_name}"
 
@@ -319,6 +322,7 @@ class WasmCompiler(ASTVisitor):
         if not info:
             self.global_vars.add(node.var_name)
             info = self.global_env.define(node.var_name)
+
         if info.wasm_loc_idx is not None:
             return f"{val_code}\nlocal.tee {info.wasm_loc_idx}"
         else:
@@ -326,7 +330,8 @@ class WasmCompiler(ASTVisitor):
 
     def visit_symbol(self, node: SymbolNode) -> str:
         info = self.current_env.resolve(node.name)
-        if not info: raise RuntimeError(f"Undefined symbol: {node.name}")
+        if not info:
+            raise RuntimeError(f"Undefined symbol: {node.name}")
         if info.wasm_loc_idx is not None:
             return f"local.get {info.wasm_loc_idx}"
         elif info.is_function:
@@ -342,28 +347,12 @@ class WasmCompiler(ASTVisitor):
     def visit_string(self, node: StringNode) -> str:
         text_bytes = node.value.encode('utf-8')
         length = len(text_bytes)
-        code = "global.get $heap_ptr\n"  # Result pointer
-
-        # Write length
-        code += f"global.get $heap_ptr\n"
-        code += f"i32.const {length}\n"
-        code += f"i32.store\n"
-
-        # Write bytes
+        code = "global.get $heap_ptr\n"
+        code += f"global.get $heap_ptr\ni32.const {length}\ni32.store\n"
         for i, byte in enumerate(text_bytes):
-            code += f"global.get $heap_ptr\n"
-            code += f"i32.const {4 + i}\n"
-            code += f"i32.add\n"
-            code += f"i32.const {byte}\n"
-            code += f"i32.store8\n"
-
-        # Move ptr
+            code += f"global.get $heap_ptr\ni32.const {4 + i}\ni32.add\ni32.const {byte}\ni32.store8\n"
         aligned_len = 4 + length
-        code += f"global.get $heap_ptr\n"
-        code += f"i32.const {aligned_len}\n"
-        code += f"i32.add\n"
-        code += f"global.set $heap_ptr\n"
-
+        code += f"global.get $heap_ptr\ni32.const {aligned_len}\ni32.add\nglobal.set $heap_ptr\n"
         code += "f64.convert_i32_u"
         return code
 
@@ -377,6 +366,11 @@ class WasmCompiler(ASTVisitor):
         return self._compile_quoted_data(node.expr)
 
     def _compile_quoted_data(self, node: ASTNode) -> str:
+        """
+        Компиляция данных внутри quote.
+        Здесь символы - это просто данные (пока не реализованы как Symbols),
+        числа - числа, списки - вызовы visit_list.
+        """
         if isinstance(node, NumberNode):
             return f"f64.const {node.value}"
         elif isinstance(node, NilNode):
@@ -384,17 +378,41 @@ class WasmCompiler(ASTVisitor):
         elif isinstance(node, StringNode):
             return self.visit_string(node)
         elif isinstance(node, ListNode):
-            if not node.elements: return "f64.const 0.0"
-            head, tail = node.elements[0], ListNode(node.elements[1:])
-            return f"{self._compile_quoted_data(head)}\n{self._compile_quoted_data(tail)}\ncall $std_cons"
+            return self.visit_list(node)
+        elif isinstance(node, SymbolNode):
+            # В будущем здесь можно возвращать интернированный символ
+            # Пока для упрощения вернем 0 (nil) или заглушку,
+            # но чтобы тесты с '(a b) работали как списки, нам важно,
+            # что visit_list рекурсивно сюда зайдет.
+            return "f64.const 0.0"
         else:
             return "f64.const 0.0"
 
+    def visit_list(self, node: ListNode) -> str:
+        """
+        Реализация компиляции сырого списка (ListNode).
+        ListNode в нашем AST появляется только внутри Quote.
+        Мы должны скомпилировать элементы как ДАННЫЕ и собрать их в список через cons.
+        """
+        if not node.elements:
+            return "f64.const 0.0"
+
+        code = "f64.const 0.0"  # Конец списка (nil)
+
+        # Итерируемся с конца к началу: (cons last nil), потом (cons prev result) ...
+        for elem in reversed(node.elements):
+            elem_code = self._compile_quoted_data(elem)
+            code = f"{elem_code}\n{code}\ncall $std_cons"
+
+        return code
+
     def visit_prim_call(self, node: PrimCallNode) -> str:
         if node.prim_name in self.math_ops:
-            return f"{self._join_args(node)}\n{self.math_ops[node.prim_name]}"
+            args = "\n".join([arg.accept(self) for arg in node.args])
+            return f"{args}\n{self.math_ops[node.prim_name]}"
         elif node.prim_name in self.comp_ops:
-            return f"{self._join_args(node)}\n{self.comp_ops[node.prim_name]}\nf64.convert_i32_s"
+            args = "\n".join([arg.accept(self) for arg in node.args])
+            return f"{args}\n{self.comp_ops[node.prim_name]}\nf64.convert_i32_s"
         elif node.prim_name == 'not':
             return f"{node.args[0].accept(self)}\nf64.const 0.0\nf64.eq\nf64.convert_i32_s"
         elif node.prim_name == 'length':
@@ -402,10 +420,13 @@ class WasmCompiler(ASTVisitor):
         elif node.prim_name == 'str-concat':
             return f"{node.args[0].accept(self)}\n{node.args[1].accept(self)}\ncall $std_str_concat"
         elif node.prim_name in ['cons', 'car', 'cdr', 'equal']:
-            return f"{self._join_args(node)}\ncall $std_{node.prim_name}"
+            args = "\n".join([arg.accept(self) for arg in node.args])
+            return f"{args}\ncall $std_{node.prim_name}"
         elif node.prim_name in ['null', 'atom']:
-            return f"{self._join_args(node)}\ncall $std_is_nil"
+            args = "\n".join([arg.accept(self) for arg in node.args])
+            return f"{args}\ncall $std_is_nil"
         elif node.prim_name == 'list':
+            # Runtime list construction: (list 1 2 3) -> (cons 1 (cons 2 (cons 3 nil)))
             code = "f64.const 0.0"
             for arg in reversed(node.args):
                 code = f"{arg.accept(self)}\n{code}\ncall $std_cons"
@@ -415,31 +436,30 @@ class WasmCompiler(ASTVisitor):
         else:
             raise NotImplementedError(f"Primitive {node.prim_name} not implemented")
 
-    def _join_args(self, node: PrimCallNode) -> str:
-        return "\n".join([arg.accept(self) for arg in node.args])
-
     def visit_cond(self, node: CondNode) -> str:
-        if not node.clauses: return "f64.const 0.0"
+        if not node.clauses:
+            return "f64.const 0.0"
         return self._compile_cond_recursive(node.clauses)
 
     def _compile_cond_recursive(self, clauses: List[tuple]) -> str:
-        if not clauses: return "f64.const 0.0"
+        if not clauses:
+            return "f64.const 0.0"
         pred, body = clauses[0]
-
         if isinstance(pred, TrueNode) or (isinstance(pred, SymbolNode) and pred.name == 't'):
             return self._compile_block(body)
-
         check = f"{pred.accept(self)}\nf64.const 0.0\nf64.ne"
         then_code = self._compile_block(body)
         else_code = self._compile_cond_recursive(clauses[1:])
         return f"{check}\n(if (result f64)\n(then\n{self._indent(then_code, 2)}\n)\n(else\n{self._indent(else_code, 2)}\n)\n)"
 
     def visit_progn(self, node: PrognNode) -> str:
-        if not node.body: return "f64.const 0.0"
+        if not node.body:
+            return "f64.const 0.0"
         lines = []
         for i, expr in enumerate(node.body):
             lines.append(expr.accept(self))
-            if i < len(node.body) - 1: lines.append("drop")
+            if i < len(node.body) - 1:
+                lines.append("drop")
         return "\n".join(lines)
 
     def visit_logic(self, node: LogicNode) -> str:
@@ -450,35 +470,13 @@ class WasmCompiler(ASTVisitor):
     def _compile_logic_recursive(self, op: str, args: List[ASTNode]) -> str:
         current, rest = args[0], args[1:]
         curr_code = current.accept(self)
-
-        if not rest: return curr_code
+        if not rest:
+            return curr_code
         rest_code = self._compile_logic_recursive(op, rest)
-
         if op == 'and':
-            return f"""
-            {curr_code}
-            f64.const 0.0
-            f64.ne
-            (if (result f64)
-                (then {self._indent(rest_code, 4)})
-                (else f64.const 0.0)
-            )
-            """
+            return f"{curr_code}\nf64.const 0.0\nf64.ne\n(if (result f64) (then {self._indent(rest_code, 4)}) (else f64.const 0.0))"
         elif op == 'or':
-            return f"""
-            {curr_code}
-            global.set $scratch
-            global.get $scratch
-            f64.const 0.0
-            f64.ne
-            (if (result f64)
-                (then global.get $scratch)
-                (else {self._indent(rest_code, 4)})
-            )
-            """
-
-    def visit_list(self, node):
-        raise NotImplementedError("Raw lists not supported")
+            return f"{curr_code}\nglobal.set $scratch\nglobal.get $scratch\nf64.const 0.0\nf64.ne\n(if (result f64) (then global.get $scratch) (else {self._indent(rest_code, 4)}))"
 
     def visit_lambda(self, node):
         raise NotImplementedError("Lambdas not yet supported")
