@@ -3,7 +3,6 @@
 """
 from dataclasses import dataclass
 from typing import Dict, Optional, Any
-from .ast_nodes import LambdaNode
 
 
 @dataclass
@@ -15,36 +14,31 @@ class SymbolInfo:
     is_primitive: bool = False
     value: Any = None
     env_level: int = 0
-
-    # None, если символ не используется в WASM (например, макрос) или еще не назначен.
-    # Int, если это локальная переменная (индекс WASM).
-    # String, если это глобальная переменная (имя WASM global, например "$var").
     wasm_loc_idx: Optional[int] = None
 
 
 class Environment:
     """Окружение (цепочка областей видимости)"""
 
-    # Примитивы, которые не могут быть переопределены
+    # Примитивы
     PRIMITIVES = {
         'cons', 'car', 'cdr', 'atom', 'eq',
         '+', '-', '*', '/',
         'print', 'list', '=',
-        '<', '>', '<=', '>=','not'
+        '<', '>', '<=', '>=', 'not',
+        'length', 'str-concat'  # <--- Новые функции строк
     }
 
-    # Специальные формы (не функции)
+    # Специальные формы
     SPECIAL_FORMS = {
-        'quote', 'lambda', 'cond', 'setq', 'defun'
+        'quote', 'lambda', 'cond', 'setq', 'defun',
+        'progn', 'and', 'or'    # <--- Новые управляющие конструкции
     }
 
     def __init__(self, parent: Optional['Environment'] = None):
         self.parent = parent
         self.symbols: Dict[str, SymbolInfo] = {}
         self.level = parent.level + 1 if parent else 0
-
-        # Счетчик локальных переменных для текущей области видимости (функции)
-        # Если это глобальный scope, счетчик не используется.
         self.next_local_idx = 0
 
     def define(self, name: str, is_function: bool = False, value: Any = None) -> SymbolInfo:
@@ -63,7 +57,7 @@ class Environment:
             is_primitive=is_primitive,
             value=value,
             env_level=self.level,
-            wasm_loc_idx = None
+            wasm_loc_idx=None
         )
         self.symbols[name] = info
         return info
@@ -81,27 +75,16 @@ class Environment:
         info = self.resolve(name)
         if info:
             return info
-        # Создаем в глобальном окружении
         if self.parent is None:
             return self.define(name)
         return self.get_global().define(name)
 
     def get_global(self) -> 'Environment':
-        """Получить глобальное окружение"""
         if self.parent is None:
             return self
         return self.parent.get_global()
 
-    def is_closed_over(self, name: str) -> bool:
-        """Является ли символ захваченным замыканием?"""
-        info = self.resolve(name)
-        return info and info.env_level < self.level
-
     def define_wasm_local(self, name: str) -> int:
-        """
-        Регистрирует переменную как локальную для WASM и выдает ей следующий индекс.
-        Используется только на этапе компиляции внутри функций.
-        """
         info = self.define(name, is_function=False)
         info.wasm_loc_idx = self.next_local_idx
         self.next_local_idx += 1

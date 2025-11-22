@@ -54,10 +54,12 @@ class WasmCompiler(ASTVisitor):
 """
 
     def _get_memory_config(self) -> str:
-        #  Экспортируем память под именем "memory"
         return '  (memory (export "memory") 1)\n'
+
     def _get_globals_definitions(self) -> str:
         code = '  (global $heap_ptr (mut i32) (i32.const 8))\n'
+        # Временная переменная для реализации OR
+        code += '  (global $scratch (mut f64) (f64.const 0.0))\n'
         for g_var in self.global_vars:
             code += f'  (global ${g_var} (mut f64) (f64.const 0.0))\n'
         return code
@@ -141,6 +143,125 @@ class WasmCompiler(ASTVisitor):
         end
     end
   )
+  ;; (length "str")
+  (func $std_length (param $ptr f64) (result f64)
+    local.get $ptr
+    i32.trunc_f64_u
+    i32.load
+    f64.convert_i32_u
+  )
+  ;; (str-concat "a" "b")
+  (func $std_str_concat (param $a f64) (param $b f64) (result f64)
+    (local $addr_a i32)
+    (local $len_a i32)
+    (local $addr_b i32)
+    (local $len_b i32)
+    (local $new_ptr i32)
+    (local $new_len i32)
+    (local $i i32)
+
+    local.get $a
+    i32.trunc_f64_u
+    local.set $addr_a
+
+    local.get $b
+    i32.trunc_f64_u
+    local.set $addr_b
+
+    local.get $addr_a
+    i32.load
+    local.set $len_a
+
+    local.get $addr_b
+    i32.load
+    local.set $len_b
+
+    local.get $len_a
+    local.get $len_b
+    i32.add
+    local.set $new_len
+
+    global.get $heap_ptr
+    local.set $new_ptr
+
+    local.get $new_ptr
+    local.get $new_len
+    i32.store
+
+    ;; Copy A
+    i32.const 0
+    local.set $i
+    (block $break_a (loop $loop_a
+        local.get $i
+        local.get $len_a
+        i32.ge_u
+        br_if $break_a
+
+        local.get $new_ptr
+        i32.const 4
+        i32.add
+        local.get $i
+        i32.add
+
+        local.get $addr_a
+        i32.const 4
+        i32.add
+        local.get $i
+        i32.add
+        i32.load8_u
+
+        i32.store8
+
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $loop_a
+    ))
+
+    ;; Copy B
+    i32.const 0
+    local.set $i
+    (block $break_b (loop $loop_b
+        local.get $i
+        local.get $len_b
+        i32.ge_u
+        br_if $break_b
+
+        local.get $new_ptr
+        i32.const 4
+        i32.add
+        local.get $len_a
+        i32.add
+        local.get $i
+        i32.add
+
+        local.get $addr_b
+        i32.const 4
+        i32.add
+        local.get $i
+        i32.add
+        i32.load8_u
+
+        i32.store8
+
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $loop_b
+    ))
+
+    global.get $heap_ptr
+    local.get $new_len
+    i32.const 4
+    i32.add
+    i32.add
+    global.set $heap_ptr
+
+    local.get $new_ptr
+    f64.convert_i32_u
+  )
 """
 
     def _scan_definitions(self, nodes: List[ASTNode]):
@@ -154,12 +275,9 @@ class WasmCompiler(ASTVisitor):
     def _compile_block(self, nodes: List[ASTNode]) -> str:
         if not nodes:
             return "f64.const 0.0"
-
         lines = []
         for i, node in enumerate(nodes):
             res = node.accept(self)
-            if res is None:
-                raise RuntimeError(f"Compilation failed (returned None) for node: {node}")
             lines.append(res)
             if i < len(nodes) - 1:
                 lines.append("drop")
@@ -169,7 +287,7 @@ class WasmCompiler(ASTVisitor):
         prefix = " " * spaces
         return "\n".join([prefix + line for line in code.split('\n')])
 
-    # --- Visitor Implementation ---
+    # --- Visitor Methods ---
 
     def visit_defun(self, node: DefunNode):
         func_env = Environment(parent=self.global_env)
@@ -188,15 +306,10 @@ class WasmCompiler(ASTVisitor):
 
     def visit_call(self, node: CallNode) -> str:
         func_name = node.func.name if isinstance(node.func, SymbolNode) else None
-
-        # --- Поддержка princ ---
         if func_name == 'princ':
-            arg_code = node.args[0].accept(self)
-            return f"{arg_code}\ncall $princ\nf64.const 0.0"
-
+            return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
         if not func_name:
-            raise NotImplementedError("Indirect calls not supported in MVP")
-
+            raise NotImplementedError("Indirect calls not supported")
         args_code = "\n".join([arg.accept(self) for arg in node.args])
         return f"{args_code}\ncall ${func_name}"
 
@@ -206,7 +319,6 @@ class WasmCompiler(ASTVisitor):
         if not info:
             self.global_vars.add(node.var_name)
             info = self.global_env.define(node.var_name)
-
         if info.wasm_loc_idx is not None:
             return f"{val_code}\nlocal.tee {info.wasm_loc_idx}"
         else:
@@ -214,8 +326,7 @@ class WasmCompiler(ASTVisitor):
 
     def visit_symbol(self, node: SymbolNode) -> str:
         info = self.current_env.resolve(node.name)
-        if not info:
-            raise RuntimeError(f"Undefined symbol: {node.name}")
+        if not info: raise RuntimeError(f"Undefined symbol: {node.name}")
         if info.wasm_loc_idx is not None:
             return f"local.get {info.wasm_loc_idx}"
         elif info.is_function:
@@ -228,21 +339,17 @@ class WasmCompiler(ASTVisitor):
     def visit_number(self, node: NumberNode) -> str:
         return f"f64.const {node.value}"
 
-    # --- РЕАЛИЗАЦИЯ СТРОК ---
     def visit_string(self, node: StringNode) -> str:
         text_bytes = node.value.encode('utf-8')
         length = len(text_bytes)
+        code = "global.get $heap_ptr\n"  # Result pointer
 
-        # 1. Берем текущий heap_ptr (это будет адрес строки)
-        # Стек: [ptr]
-        code = "global.get $heap_ptr\n"
-
-        # 2. Пишем длину
+        # Write length
         code += f"global.get $heap_ptr\n"
         code += f"i32.const {length}\n"
         code += f"i32.store\n"
 
-        # 3. Пишем байты
+        # Write bytes
         for i, byte in enumerate(text_bytes):
             code += f"global.get $heap_ptr\n"
             code += f"i32.const {4 + i}\n"
@@ -250,16 +357,14 @@ class WasmCompiler(ASTVisitor):
             code += f"i32.const {byte}\n"
             code += f"i32.store8\n"
 
-        # 4. Двигаем heap_ptr
+        # Move ptr
         aligned_len = 4 + length
         code += f"global.get $heap_ptr\n"
         code += f"i32.const {aligned_len}\n"
         code += f"i32.add\n"
         code += f"global.set $heap_ptr\n"
 
-        # 5. Превращаем результат (ptr) в f64
         code += "f64.convert_i32_u"
-
         return code
 
     def visit_nil(self, node: NilNode) -> str:
@@ -279,88 +384,98 @@ class WasmCompiler(ASTVisitor):
         elif isinstance(node, StringNode):
             return self.visit_string(node)
         elif isinstance(node, ListNode):
-            if not node.elements:
-                return "f64.const 0.0"
-            head = node.elements[0]
-            tail_elements = node.elements[1:]
-            head_code = self._compile_quoted_data(head)
-            if tail_elements:
-                tail_node = ListNode(tail_elements)
-                tail_code = self._compile_quoted_data(tail_node)
-            else:
-                tail_code = "f64.const 0.0"
-            return f"{head_code}\n{tail_code}\ncall $std_cons"
+            if not node.elements: return "f64.const 0.0"
+            head, tail = node.elements[0], ListNode(node.elements[1:])
+            return f"{self._compile_quoted_data(head)}\n{self._compile_quoted_data(tail)}\ncall $std_cons"
         else:
             return "f64.const 0.0"
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
         if node.prim_name in self.math_ops:
-            return self._compile_math_op(node)
+            return f"{self._join_args(node)}\n{self.math_ops[node.prim_name]}"
         elif node.prim_name in self.comp_ops:
-            return self._compile_comp_op(node)
-        elif node.prim_name in ['cons', 'car', 'cdr', 'list', 'equal', 'atom', 'null']:
-            return self._compile_list_op(node)
+            return f"{self._join_args(node)}\n{self.comp_ops[node.prim_name]}\nf64.convert_i32_s"
         elif node.prim_name == 'not':
-            return self._compile_not_op(node)
+            return f"{node.args[0].accept(self)}\nf64.const 0.0\nf64.eq\nf64.convert_i32_s"
+        elif node.prim_name == 'length':
+            return f"{node.args[0].accept(self)}\ncall $std_length"
+        elif node.prim_name == 'str-concat':
+            return f"{node.args[0].accept(self)}\n{node.args[1].accept(self)}\ncall $std_str_concat"
+        elif node.prim_name in ['cons', 'car', 'cdr', 'equal']:
+            return f"{self._join_args(node)}\ncall $std_{node.prim_name}"
+        elif node.prim_name in ['null', 'atom']:
+            return f"{self._join_args(node)}\ncall $std_is_nil"
+        elif node.prim_name == 'list':
+            code = "f64.const 0.0"
+            for arg in reversed(node.args):
+                code = f"{arg.accept(self)}\n{code}\ncall $std_cons"
+            return code
         elif node.prim_name == 'print':
             return f"{node.args[0].accept(self)}\ncall $print_number\nf64.const 0.0"
         else:
             raise NotImplementedError(f"Primitive {node.prim_name} not implemented")
 
-    def _compile_math_op(self, node: PrimCallNode) -> str:
-        args_code = "\n".join([arg.accept(self) for arg in node.args])
-        op = self.math_ops[node.prim_name]
-        return f"{args_code}\n{op}"
-
-    def _compile_comp_op(self, node: PrimCallNode) -> str:
-        args_code = "\n".join([arg.accept(self) for arg in node.args])
-        op = self.comp_ops[node.prim_name]
-        return f"{args_code}\n{op}\nf64.convert_i32_s"
-
-    def _compile_not_op(self, node: PrimCallNode) -> str:
-        val = node.args[0].accept(self)
-        return f"{val}\nf64.const 0.0\nf64.eq\nf64.convert_i32_s"
-
-    def _compile_list_op(self, node: PrimCallNode) -> str:
-        name = node.prim_name
-        if name == 'list':
-            code = "f64.const 0.0"
-            for arg in reversed(node.args):
-                code = f"{arg.accept(self)}\n{code}\ncall $std_cons"
-            return code
-
-        args = "\n".join([arg.accept(self) for arg in node.args])
-
-        if name == 'cons': return f"{args}\ncall $std_cons"
-        if name == 'car': return f"{args}\ncall $std_car"
-        if name == 'cdr': return f"{args}\ncall $std_cdr"
-        if name == 'equal': return f"{args}\ncall $std_equal"
-        if name == 'null' or name == 'atom':
-            return f"{args}\ncall $std_is_nil"
-
-        return ""
+    def _join_args(self, node: PrimCallNode) -> str:
+        return "\n".join([arg.accept(self) for arg in node.args])
 
     def visit_cond(self, node: CondNode) -> str:
-        if not node.clauses:
-            return "f64.const 0.0"
+        if not node.clauses: return "f64.const 0.0"
         return self._compile_cond_recursive(node.clauses)
 
     def _compile_cond_recursive(self, clauses: List[tuple]) -> str:
-        if not clauses:
-            return "f64.const 0.0"
+        if not clauses: return "f64.const 0.0"
+        pred, body = clauses[0]
 
-        pred_node, body_nodes = clauses[0]
+        if isinstance(pred, TrueNode) or (isinstance(pred, SymbolNode) and pred.name == 't'):
+            return self._compile_block(body)
 
-        if isinstance(pred_node, TrueNode) or (isinstance(pred_node, SymbolNode) and pred_node.name == 't'):
-            return self._compile_block(body_nodes)
-
-        pred_code = pred_node.accept(self)
-        check_code = f"{pred_code}\nf64.const 0.0\nf64.ne"
-
-        then_code = self._compile_block(body_nodes)
+        check = f"{pred.accept(self)}\nf64.const 0.0\nf64.ne"
+        then_code = self._compile_block(body)
         else_code = self._compile_cond_recursive(clauses[1:])
+        return f"{check}\n(if (result f64)\n(then\n{self._indent(then_code, 2)}\n)\n(else\n{self._indent(else_code, 2)}\n)\n)"
 
-        return f"{check_code}\n(if (result f64)\n(then\n{self._indent(then_code, 2)}\n)\n(else\n{self._indent(else_code, 2)}\n)\n)"
+    def visit_progn(self, node: PrognNode) -> str:
+        if not node.body: return "f64.const 0.0"
+        lines = []
+        for i, expr in enumerate(node.body):
+            lines.append(expr.accept(self))
+            if i < len(node.body) - 1: lines.append("drop")
+        return "\n".join(lines)
+
+    def visit_logic(self, node: LogicNode) -> str:
+        if not node.args:
+            return "f64.const 1.0" if node.op == 'and' else "f64.const 0.0"
+        return self._compile_logic_recursive(node.op, node.args)
+
+    def _compile_logic_recursive(self, op: str, args: List[ASTNode]) -> str:
+        current, rest = args[0], args[1:]
+        curr_code = current.accept(self)
+
+        if not rest: return curr_code
+        rest_code = self._compile_logic_recursive(op, rest)
+
+        if op == 'and':
+            return f"""
+            {curr_code}
+            f64.const 0.0
+            f64.ne
+            (if (result f64)
+                (then {self._indent(rest_code, 4)})
+                (else f64.const 0.0)
+            )
+            """
+        elif op == 'or':
+            return f"""
+            {curr_code}
+            global.set $scratch
+            global.get $scratch
+            f64.const 0.0
+            f64.ne
+            (if (result f64)
+                (then global.get $scratch)
+                (else {self._indent(rest_code, 4)})
+            )
+            """
 
     def visit_list(self, node):
         raise NotImplementedError("Raw lists not supported")

@@ -47,13 +47,18 @@ class ASTVisitor(ABC):
     @abstractmethod
     def visit_defun(self, node: 'DefunNode') -> Any: pass
 
+    @abstractmethod
+    def visit_progn(self, node: 'PrognNode') -> Any: pass
+
+    @abstractmethod
+    def visit_logic(self, node: 'LogicNode') -> Any: pass
+
 
 class ASTNode(ABC):
     """Базовый класс для всех AST узлов"""
 
     @abstractmethod
     def accept(self, visitor: ASTVisitor) -> Any:
-        """Паттерн Visitor для компиляции"""
         pass
 
 
@@ -122,13 +127,12 @@ class LambdaNode(ASTNode):
         self.params = params
         self.body = body
         self.closure_env = closure_env
-        self.analyzed = False
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_lambda(self)
 
     def __repr__(self):
-        return f"Lambda({self.params}, {len(self.body)} exprs, {len(self.closure_env.symbols)} captured)"
+        return f"Lambda({self.params}, {len(self.body)} exprs)"
 
 
 class CallNode(ASTNode):
@@ -188,6 +192,7 @@ class ListNode(ASTNode):
     def __repr__(self):
         return f"List({self.elements})"
 
+
 class DefunNode(ASTNode):
     def __init__(self, name: str, params: List[str], body: List[ASTNode]):
         self.name = name
@@ -199,3 +204,28 @@ class DefunNode(ASTNode):
 
     def __repr__(self):
         return f"Defun({self.name}, {self.params}, {len(self.body)} exprs)"
+
+
+class PrognNode(ASTNode):
+    """Последовательное выполнение выражений"""
+    def __init__(self, body: List[ASTNode]):
+        self.body = body
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_progn(self)
+
+    def __repr__(self):
+        return f"Progn({len(self.body)} exprs)"
+
+
+class LogicNode(ASTNode):
+    """Логические операции AND / OR"""
+    def __init__(self, op: str, args: List[ASTNode]):
+        self.op = op
+        self.args = args
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_logic(self)
+
+    def __repr__(self):
+        return f"Logic({self.op}, {self.args})"

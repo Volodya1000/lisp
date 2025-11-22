@@ -1,8 +1,8 @@
-from typing import List, Tuple
+from typing import List
 from gen.lispParser import lispParser
 from gen.lispVisitor import lispVisitor
 from .ast_nodes import *
-from .symbol_table import Environment, SymbolInfo
+from .symbol_table import Environment
 
 
 class SemanticAnalyzer(lispVisitor):
@@ -14,32 +14,24 @@ class SemanticAnalyzer(lispVisitor):
         self._init_primitives()
 
     def _init_primitives(self):
-        """Инициализировать примитивные функции"""
         for name in Environment.PRIMITIVES:
             self.global_env.define(name, is_function=True)
-
         for name in Environment.SPECIAL_FORMS:
             self.global_env.define(name, is_function=False)
 
-    # --- Правила грамматики (Visitor) ---
-
     def visitProgram(self, ctx: lispParser.ProgramContext) -> List[ASTNode]:
-        """program: form* EOF;"""
         return [self.visit(form) for form in ctx.form()]
 
     def visitForm(self, ctx: lispParser.FormContext) -> ASTNode:
-        """form: sexpr;"""
         return self.visit(ctx.sexpr())
 
     def visitSexpr(self, ctx: lispParser.SexprContext) -> ASTNode:
-        """sexpr: atom | list;"""
         if ctx.atom():
             return self.visit(ctx.atom())
         else:
             return self.visit(ctx.list_())
 
     def visitAtom(self, ctx: lispParser.AtomContext) -> ASTNode:
-        """atom: NUMBER | STRING | SYMBOL | QUOTE sexpr | NIL | TRUE;"""
         if ctx.NUMBER():
             return NumberNode(float(ctx.NUMBER().getText()))
         elif ctx.STRING():
@@ -47,9 +39,7 @@ class SemanticAnalyzer(lispVisitor):
             return StringNode(text)
         elif ctx.SYMBOL():
             name = ctx.SYMBOL().getText()
-
-            # --- ИСПРАВЛЕНИЕ: Отрицательные числа ---
-            # Лексер может принять "-1" за символ. Пробуем сконвертировать.
+            # Попытка обработать отрицательные числа "-1", которые лексер может принять за символ
             try:
                 return NumberNode(float(name))
             except ValueError:
@@ -70,8 +60,6 @@ class SemanticAnalyzer(lispVisitor):
         else:
             raise RuntimeError(f"Неизвестный тип атома: {ctx.getText()}")
 
-    # --- Helper для QUOTE (Data Mode) ---
-
     def _build_quoted_data(self, ctx: lispParser.SexprContext) -> ASTNode:
         if ctx.atom():
             return self._build_quoted_atom(ctx.atom())
@@ -82,30 +70,26 @@ class SemanticAnalyzer(lispVisitor):
         if ctx.NUMBER():
             return NumberNode(float(ctx.NUMBER().getText()))
         elif ctx.STRING():
-            text = ctx.STRING().getText()[1:-1]
-            return StringNode(text)
+            return StringNode(ctx.STRING().getText()[1:-1])
         elif ctx.SYMBOL():
             name = ctx.SYMBOL().getText()
-            # Аналогичное исправление для quote
+            if name == 'nil': return NilNode()
+            if name == 't': return TrueNode()
+            # Fallback для чисел внутри quote
             try:
                 return NumberNode(float(name))
             except ValueError:
-                pass
-
-            if name == 'nil':
-                return NilNode()
-            elif name == 't':
-                return TrueNode()
-            else:
                 return SymbolNode(name)
         elif ctx.NIL():
             return NilNode()
         elif ctx.TRUE():
             return TrueNode()
         elif ctx.QUOTE():
+            # ВАЖНО: Рекурсивная обработка quote внутри quote ('''a)
             return QuoteNode(self._build_quoted_data(ctx.sexpr()))
         else:
-            raise RuntimeError(f"Неизвестный атом в quote: {ctx.getText()}")
+            # Fallback
+            return SymbolNode(ctx.getText())
 
     def _build_quoted_list(self, ctx: lispParser.ListContext) -> ListNode:
         elements = []
@@ -113,11 +97,8 @@ class SemanticAnalyzer(lispVisitor):
             elements.append(self._build_quoted_data(sexpr_ctx))
         return ListNode(elements)
 
-    # --- Обработка списков и спецформ ---
-
     def visitList(self, ctx: lispParser.ListContext) -> ASTNode:
         sexprs = ctx.sexpr()
-
         if not sexprs:
             return NilNode()
 
@@ -144,134 +125,121 @@ class SemanticAnalyzer(lispVisitor):
             return self._handle_setq_lazy(raw_args)
         elif name == 'defun':
             return self._handle_defun_lazy(raw_args)
+        elif name == 'progn':
+            return self._handle_progn_lazy(raw_args)
+        elif name == 'and' or name == 'or':
+            return self._handle_logic_lazy(name, raw_args)
         raise NotImplementedError(f"Спецформа {name} не реализована")
 
-    # --- Ленивые обработчики ---
+    # --- Handlers ---
 
-    def _handle_quote_lazy(self, raw_args: List[lispParser.SexprContext]) -> QuoteNode:
-        if len(raw_args) != 1:
-            raise SyntaxError(f"quote требует 1 аргумент")
+    def _handle_quote_lazy(self, raw_args) -> QuoteNode:
+        if len(raw_args) != 1: raise SyntaxError("quote требует 1 аргумент")
         return QuoteNode(self._build_quoted_data(raw_args[0]))
 
-    def _handle_setq_lazy(self, raw_args: List[lispParser.SexprContext]) -> SetqNode:
-        if len(raw_args) != 2:
-            raise SyntaxError("setq требует 2 аргумента")
+    def _handle_setq_lazy(self, raw_args) -> SetqNode:
+        if len(raw_args) != 2: raise SyntaxError("setq требует 2 аргумента")
 
         name_node = self.visit(raw_args[0])
+        # Восстановлен точный текст ошибки для теста
         if not isinstance(name_node, SymbolNode):
             raise SyntaxError("Первый аргумент setq должен быть символом")
 
         var_name = name_node.name
         value_node = self.visit(raw_args[1])
 
-        # ИСПРАВЛЕНИЕ: Чтобы пройти тест test_variable_scope_isolation,
-        # если переменная не найдена в цепочке окружений, определяем её в ТЕКУЩЕМ (локальном),
-        # а не в глобальном.
-        existing_info = self.current_env.resolve(var_name)
-        if not existing_info:
-            self.current_env.define(var_name, is_function=False)
-
+        existing = self.current_env.resolve(var_name)
+        if not existing:
+            self.current_env.define(var_name)
         return SetqNode(var_name, value_node)
 
-    def _handle_lambda_lazy(self, raw_args: List[lispParser.SexprContext]) -> LambdaNode:
-        if len(raw_args) < 2:
-            raise SyntaxError("lambda требует параметры и тело")
+    def _handle_lambda_lazy(self, raw_args) -> LambdaNode:
+        if len(raw_args) < 2: raise SyntaxError("lambda требует параметры и тело")
 
-        params_ast = self.visit(raw_args[0])
-        params = self._extract_params(params_ast)
+        params = self._extract_params(self.visit(raw_args[0]))
 
         lambda_env = Environment(self.current_env)
-        for param in params:
-            lambda_env.define(param, is_function=False)
+        for p in params: lambda_env.define(p)
 
-        old_env = self.current_env
+        old = self.current_env
         self.current_env = lambda_env
         try:
-            body_nodes = [self.visit(expr) for expr in raw_args[1:]]
+            body = [self.visit(e) for e in raw_args[1:]]
         finally:
-            self.current_env = old_env
+            self.current_env = old
+        return LambdaNode(params, body, lambda_env)
 
-        return LambdaNode(params, body_nodes, lambda_env)
-
-    def _handle_cond_lazy(self, raw_args: List[lispParser.SexprContext]) -> CondNode:
+    def _handle_cond_lazy(self, raw_args) -> CondNode:
         clauses = []
         for clause_ctx in raw_args:
             node = self.visit(clause_ctx)
-            pred = None
-            body = []
 
-            # Логика распаковки clause, который был преобразован visitList в CallNode/PrimCallNode
+            # Логика разбора clause
             if isinstance(node, CallNode):
-                pred = node.func
-                body = node.args
+                pred, body = node.func, node.args
             elif isinstance(node, PrimCallNode):
-                # Workaround для случаев, когда clause начинается с примитива
-                # ((< n 0) -1) -> visitList -> CallNode(func=PrimCallNode(<), args=[-1])
-                # Но если сам visitList вернул PrimCallNode (например (list 1 2)),
-                # то это странный clause, но допустим.
-                pred = node  # Fallback
-                # Однако, основной паттерн ((pred) body) попадает в CallNode выше
+                pred, body = node, []
             elif isinstance(node, ListNode):
                 if not node.elements: raise SyntaxError("Empty cond clause")
-                pred = node.elements[0]
-                body = node.elements[1:]
+                pred, body = node.elements[0], node.elements[1:]
             elif isinstance(node, NilNode):
-                # ИСПРАВЛЕНИЕ: Сообщение об ошибке приведено в соответствие с тестом
+                # Восстановлен точный текст ошибки
                 raise SyntaxError("Неверный clause в cond")
             else:
-                # Если clause это просто атом (t), это ошибка структуры
-                raise SyntaxError(f"Invalid cond clause structure: {node}")
+                raise SyntaxError("Invalid cond clause structure")
 
-            if not body:
-                body = [NilNode()]
-
+            if not body: body = [NilNode()]
             clauses.append((pred, body))
-
         return CondNode(clauses)
 
-    def _handle_defun_lazy(self, raw_args: List[lispParser.SexprContext]) -> DefunNode:
-        if len(raw_args) < 3:
-            raise SyntaxError("defun требует имя, параметры и тело")
+    def _handle_defun_lazy(self, raw_args) -> DefunNode:
+        # Восстановлен точный текст ошибки
+        if len(raw_args) < 3: raise SyntaxError("defun требует имя, параметры и тело")
 
         name_node = self.visit(raw_args[0])
+        # Добавлена проверка типа узла имени
         if not isinstance(name_node, SymbolNode):
-            raise SyntaxError(f"Имя функции в defun должно быть символом")
-        func_name = name_node.name
+            raise SyntaxError("Имя функции в defun должно быть символом")
 
+        func_name = name_node.name
         self.current_env.define(func_name, is_function=True)
 
-        params_ast = self.visit(raw_args[1])
-        params = self._extract_params(params_ast)
+        params = self._extract_params(self.visit(raw_args[1]))
 
         func_env = Environment(self.current_env)
-        for param in params:
-            func_env.define(param, is_function=False)
+        for p in params: func_env.define(p)
 
-        old_env = self.current_env
+        old = self.current_env
         self.current_env = func_env
         try:
-            body_nodes = [self.visit(expr) for expr in raw_args[2:]]
+            body = [self.visit(e) for e in raw_args[2:]]
         finally:
-            self.current_env = old_env
+            self.current_env = old
+        return DefunNode(func_name, params, body)
 
-        return DefunNode(func_name, params, body_nodes)
+    def _handle_progn_lazy(self, raw_args) -> PrognNode:
+        body = [self.visit(expr) for expr in raw_args]
+        return PrognNode(body)
 
-    def _extract_params(self, params_ast: ASTNode) -> List[str]:
+    def _handle_logic_lazy(self, op: str, raw_args) -> LogicNode:
+        args = [self.visit(expr) for expr in raw_args]
+        return LogicNode(op, args)
+
+    def _extract_params(self, params_ast) -> List[str]:
         elements = []
         if isinstance(params_ast, ListNode):
             elements = params_ast.elements
         elif isinstance(params_ast, CallNode):
-            # (a b) парсится как CallNode(func=a, args=[b])
             elements = [params_ast.func] + params_ast.args
         elif isinstance(params_ast, PrimCallNode):
             elements = [SymbolNode(params_ast.prim_name)] + params_ast.args
         elif isinstance(params_ast, NilNode):
             elements = []
         else:
-            # ИСПРАВЛЕНИЕ: Если параметры не являются списком (например, число, символ, строка),
-            # выбрасываем SyntaxError, чтобы пройти тест test_defun_params_not_list
+            # Ошибка если параметры не список
             raise SyntaxError(f"Ожидался список параметров, получено: {params_ast}")
 
+        # Строгая проверка, что каждый элемент - символ
         params = []
         for p in elements:
             if isinstance(p, SymbolNode):
@@ -280,7 +248,7 @@ class SemanticAnalyzer(lispVisitor):
                 raise SyntaxError(f"Параметр должен быть символом: {p}")
         return params
 
-    # Double Dispatch methods
+    # Double Dispatch
     def visit_defun(self, node):
         return node
 
@@ -297,4 +265,10 @@ class SemanticAnalyzer(lispVisitor):
         return node
 
     def visit_lambda(self, node):
+        return node
+
+    def visit_progn(self, node):
+        return node
+
+    def visit_logic(self, node):
         return node
