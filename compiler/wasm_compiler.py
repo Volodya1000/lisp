@@ -1,87 +1,134 @@
-from typing import List
+from typing import List, Set
 from semantic.ast_nodes import *
 from semantic.symbol_table import Environment
 
 
 class WasmCompiler(ASTVisitor):
     def __init__(self):
-        # Глобальное окружение
+        # Глобальное окружение для символов
         self.global_env = Environment()
-        # Текущее окружение (на старте - глобальное)
+        # Текущее окружение (начинаем с глобального)
         self.current_env = self.global_env
 
-        # Сгенерированный код функций (список строк WAT)
+        # Хранилище сгенерированного кода функций (строки WAT)
         self.funcs_code: List[str] = []
 
+        # Множество имен глобальных переменных для секции (global ...)
+        self.global_vars: Set[str] = set()
+
     def compile(self, nodes: List[ASTNode]) -> str:
-        main_body_code = []
+        """
+        Главный метод: принимает список AST узлов, возвращает строку WAT (WebAssembly Text).
+        """
+        # 1. Предварительный проход: находим глобальные переменные и объявления функций
+        self._scan_definitions(nodes)
 
-        # 1. Сначала регистрируем все глобальные функции в окружении,
-        # чтобы function A могла вызвать function B, определенную ниже.
+        # Список узлов, которые пойдут в функцию main (все, что не defun)
+        main_nodes: List[ASTNode] = []
+
+        # 2. Разделяем узлы
         for node in nodes:
             if isinstance(node, DefunNode):
-                self.global_env.define(node.name, is_function=True)
-
-        # 2. Компилируем узлы
-        for node in nodes:
-            if isinstance(node, DefunNode):
-                # defun сам добавит свой код в self.funcs_code
+                # Код функции генерируется и сохраняется в self.funcs_code сразу
                 node.accept(self)
             else:
-                # Это выражение верхнего уровня -> идет в main
-                main_body_code.append(node.accept(self))
+                # Узлы верхнего уровня сохраняем как объекты, чтобы потом прогнать через _compile_body
+                main_nodes.append(node)
 
-        # 3. Собираем модуль
+        # 3. Сборка итогового модуля
         wat = '(module\n'
 
-        # Добавляем сгенерированные функции
+        # Импорт функции печати (для отладки/вывода)
+        wat += '  (import "env" "print_number" (func $print_number (param f64)))\n'
+
+        # Объявление глобальных переменных
+        # (global $name (mut f64) (f64.const 0.0))
+        for g_var in self.global_vars:
+            wat += f'  (global ${g_var} (mut f64) (f64.const 0.0))\n'
+
+        # Вставка скомпилированных функций
         for func_wat in self.funcs_code:
             wat += func_wat + '\n'
 
-        # Добавляем функцию main
+        # Генерация функции main
         wat += '  (func $main (export "main") (result f64)\n'
-        if main_body_code:
-            for line in main_body_code:
+
+        # ИСПОЛЬЗУЕМ _compile_body, чтобы корректно обрабатывать стек (drop для промежуточных значений)
+        if main_nodes:
+            main_code = self._compile_body(main_nodes)
+            # Добавляем отступы
+            for line in main_code.split('\n'):
                 wat += f'    {line}\n'
         else:
-            # Если main пустой, возвращаем 0.0 (чтобы валидатор не ругался на result f64)
+            # Если пусто, возвращаем 0.0
             wat += '    f64.const 0.0\n'
 
         wat += '  )\n'
         wat += ')'
+
         return wat
 
-    # --- Новые методы ---
+    def _scan_definitions(self, nodes: List[ASTNode]):
+        """
+        Проход 1: Регистрируем имена функций и глобальных переменных до генерации кода.
+        Это нужно, чтобы функции могли вызывать друг друга, а глобальные переменные
+        были объявлены в заголовке модуля.
+        """
+        for node in nodes:
+            if isinstance(node, DefunNode):
+                self.global_env.define(node.name, is_function=True)
+            elif isinstance(node, SetqNode):
+                # Если setq на верхнем уровне -> это глобальная переменная
+                self.global_vars.add(node.var_name)
+                self.global_env.define(node.var_name, is_function=False)
+
+    # --- Visitor Methods: Функции ---
+
     def visit_defun(self, node: DefunNode):
-        # 1. Создаем новый Scope
+        # 1. Создаем область видимости функции
         func_env = Environment(parent=self.global_env)
         previous_env = self.current_env
         self.current_env = func_env
 
-        # 2. Регистрируем параметры
+        # 2. Регистрируем параметры как локальные переменные WASM (индексы 0, 1, ...)
         for param_name in node.params:
             self.current_env.define_wasm_local(param_name)
 
-        # 3. Компилируем тело (ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД)
-        # Вместо ручного цикла используем _compile_body, который добавляет drop
+        # 3. Компилируем тело функции
         body_wat = self._compile_body(node.body)
 
-        # 4. Восстанавливаем контекст
+        # 4. Восстанавливаем окружение
         self.current_env = previous_env
 
-        # 5. Формируем WAT код функции
+        # 5. Формируем WAT код
         params_wat = " ".join(["(param f64)" for _ in node.params])
-
         func_wat = f'  (func ${node.name} {params_wat} (result f64)\n'
 
-        # Добавляем отступы для красоты и вставляем тело
+        # Добавляем отступы для тела
         for line in body_wat.split('\n'):
             func_wat += f'    {line}\n'
 
         func_wat += '  )'
 
         self.funcs_code.append(func_wat)
+        # defun в Lisp обычно возвращает имя функции, но здесь мы возвращаем пустую строку,
+        # так как defun не генерирует код в поток выполнения main (он уходит в definitions).
         return ""
+
+    def visit_call(self, node: CallNode) -> str:
+        # Получаем имя вызываемой функции
+        func_name = node.func.name if isinstance(node.func, SymbolNode) else None
+        if not func_name:
+            raise NotImplementedError("Indirect calls (calling a variable) not supported yet")
+
+        # Компилируем аргументы
+        args_code = [arg.accept(self) for arg in node.args]
+
+        code = "\n    ".join(args_code)
+        code += f"\n    call ${func_name}"
+        return code
+
+    # --- Visitor Methods: Переменные (Локальные и Глобальные) ---
 
     def visit_symbol(self, node: SymbolNode) -> str:
         info = self.current_env.resolve(node.name)
@@ -91,193 +138,170 @@ class WasmCompiler(ASTVisitor):
         if info.wasm_loc_idx is not None:
             # Это локальная переменная (аргумент функции)
             return f"local.get {info.wasm_loc_idx}"
+        elif not info.is_function:
+            # Это глобальная переменная
+            if node.name not in self.global_vars:
+                # Если переменная не была найдена при сканировании, регистрируем сейчас
+                self.global_vars.add(node.name)
+            return f"global.get ${node.name}"
         else:
-            # Пока не поддерживаем глобальные переменные
-            raise NotImplementedError(f"Глобальные переменные или замыкания пока не поддерживаются: {node.name}")
+            raise RuntimeError(f"Cannot use function name as variable directly: {node.name}")
 
-    def visit_call(self, node: CallNode) -> str:
-        # Вызов пользовательской функции: (myfunc 1 2)
+    def visit_setq(self, node: SetqNode) -> str:
+        # 1. Генерируем код для вычисления значения
+        val_code = node.value.accept(self)
 
-        # 1. Проверяем, существует ли функция (в глобальном env)
-        func_name = node.func.name if isinstance(node.func, SymbolNode) else None
-        if not func_name:
-            raise NotImplementedError("Indirect calls not supported yet")
+        # 2. Ищем переменную
+        info = self.current_env.resolve(node.var_name)
 
-        # 2. Компилируем аргументы
-        args_code = []
-        for arg in node.args:
-            args_code.append(arg.accept(self))
+        # Если переменной нет вообще -> создаем глобальную
+        if not info:
+            self.global_vars.add(node.var_name)
+            info = self.global_env.define(node.var_name)
 
-        # 3. Генерируем вызов
-        code = "\n    ".join(args_code)
-        code += f"\n    call ${func_name}"
-        return code
+        if info.wasm_loc_idx is not None:
+            # Локальная переменная: используем local.tee
+            # (записывает в переменную и оставляет значение на стеке)
+            return f"{val_code}\n    local.tee {info.wasm_loc_idx}"
+        else:
+            # Глобальная переменная
+            # global.set забирает значение со стека.
+            # Чтобы вернуть значение (как делает setq), нужно прочитать его обратно.
+            return f"{val_code}\n    global.set ${node.var_name}\n    global.get ${node.var_name}"
 
+    # --- Visitor Methods: Базовые типы ---
 
     def visit_number(self, node: NumberNode) -> str:
         return f"f64.const {node.value}"
 
-    def _emit_bool_check(self) -> str:
-        """
-        Превращает f64 на вершине стека в i32 (для инструкции if).
-        Логика: (value != 0.0)
-        """
-        return "f64.const 0.0\n    f64.ne"
+    def visit_nil(self, node: NilNode) -> str:
+        return "f64.const 0.0"
 
-    def visit_cond(self, node: CondNode) -> str:
-        """
-        cond: (cond (p1 e1...) (p2 e2...) ... )
-        WASM: (if (result f64) p1 (then e1...) (else (if p2 ...)))
-        """
-        if not node.clauses:
-            # Если cond пустой, возвращаем nil (0.0)
-            return "f64.const 0.0"
+    def visit_true(self, node: TrueNode) -> str:
+        return "f64.const 1.0"
 
-        # Берем первую ветку
-        pred_node, body_nodes = node.clauses[0]
-
-        # 1. Компилируем условие
-        # Специальный случай: если условие TrueNode или 't', это всегда true
-        is_always_true = isinstance(pred_node, TrueNode) or (
-                    isinstance(pred_node, SymbolNode) and pred_node.name == 't')
-
-        if is_always_true:
-            # Оптимизация: просто генерируем тело, остальное отбрасываем
-            return self._compile_body(body_nodes)
-
-        code = pred_node.accept(self)
-
-        # 2. Превращаем результат условия (f64) в boolean (i32) для WASM
-        code += f"\n    {self._emit_bool_check()}"
-
-        # 3. Начало if
-        code += "\n    (if (result f64)"
-
-        # 4. Блок THEN
-        code += "\n      (then"
-        code += "\n        " + self._compile_body(body_nodes).replace("\n", "\n        ")
-        code += "\n      )"
-
-        # 5. Блок ELSE (рекурсивно обрабатываем оставшиеся ветки)
-        # Создаем фиктивный CondNode для хвоста
-        rest_clauses = node.clauses[1:]
-        if rest_clauses:
-            rest_cond = CondNode(rest_clauses)
-            else_code = self.visit_cond(rest_cond)
-            code += "\n      (else"
-            code += "\n        " + else_code.replace("\n", "\n        ")
-            code += "\n      )"
-        else:
-            # Если веток больше нет, возвращаем 0.0 (nil)
-            code += "\n      (else f64.const 0.0)"
-
-        code += "\n    )"  # Закрываем if
-        return code
-
-    def _compile_body(self, nodes: List[ASTNode]) -> str:
-        """
-        Компилирует последовательность выражений.
-        Результат всех, кроме последнего, удаляется со стека (drop).
-        """
-        if not nodes:
-            return "f64.const 0.0"
-
-        lines = []
-        # Перебираем все выражения, кроме последнего
-        for i in range(len(nodes) - 1):
-            code = nodes[i].accept(self)
-            lines.append(code)
-            # Lisp-выражения всегда возвращают значение (f64).
-            # Мы должны убрать его со стека, так как оно не является возвращаемым значением функции.
-            lines.append("    drop")
-
-        # Последнее выражение оставляем на стеке как результат блока
-        lines.append(nodes[-1].accept(self))
-
-        return "\n".join(lines)
+    # --- Visitor Methods: Примитивы и Математика ---
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
-        # Словарь должен включать и математику, и сравнения
         op_map = {
             '+': 'f64.add',
             '-': 'f64.sub',
             '*': 'f64.mul',
             '/': 'f64.div',
-            # Сравнения
             '=': 'f64.eq',
             '<': 'f64.lt',
             '>': 'f64.gt',
             '<=': 'f64.le',
             '>=': 'f64.ge'
         }
-        if node.prim_name == 'not':
-            # (not x) -> (x == 0.0)
-            # Если x != 0, это true. not делает инверсию.
-            # В нашей логике (0.0 = false, остальное true).
-            # Реализация: сравнить с 0.0. Если равно -> 1 (True), иначе 0 (False).
-            if len(node.args) != 1: raise RuntimeError("not takes 1 arg")
+
+        # Специальная обработка print
+        if node.prim_name == 'print':
+            if len(node.args) != 1:
+                raise RuntimeError("print takes exactly 1 argument")
             val = node.args[0].accept(self)
+            # Вызываем импортированную функцию и возвращаем 0.0 (nil)
+            return f"{val}\n    call $print_number\n    f64.const 0.0"
+
+        # Специальная обработка not
+        if node.prim_name == 'not':
+            if len(node.args) != 1:
+                raise RuntimeError("not takes exactly 1 argument")
+            val = node.args[0].accept(self)
+            # Если val == 0.0, возвращаем 1. Иначе 0.
             return f"{val}\n    f64.const 0.0\n    f64.eq\n    f64.convert_i32_s"
 
         if node.prim_name not in op_map:
             raise NotImplementedError(f"Primitive '{node.prim_name}' not supported in WASM")
 
-        # 1. Компилируем аргументы
+        # Компиляция аргументов
         args_code = [arg.accept(self) for arg in node.args]
         code = "\n    ".join(args_code)
 
-        # 2. Добавляем операцию
+        # Добавление операции
         op = op_map[node.prim_name]
         code += f"\n    {op}"
 
-        # 3.  Конвертация типа для сравнений
-        # Результат сравнения в WASM это i32 (0 или 1). Нам нужно f64.
+        # Конвертация результата сравнения (i32 -> f64)
         if node.prim_name in ['=', '<', '>', '<=', '>=']:
             code += "\n    f64.convert_i32_s"
 
         return code
 
+    # --- Visitor Methods: Управление потоком (Cond) ---
 
-    def visit_true(self, node):
-        return "f64.const 1.0"
+    def visit_cond(self, node: CondNode) -> str:
+        if not node.clauses:
+            return "f64.const 0.0"
 
-    def visit_nil(self, node):
-        return "f64.const 0.0"
+        # Берем первый clause
+        pred_node, body_nodes = node.clauses[0]
 
-    def visit_setq(self, node: SetqNode) -> str:
-        """
-        (setq x 10)
-        В Lisp setq возвращает присвоенное значение.
-        В WASM local.set забирает значение со стека.
-        Решение: local.tee (set + оставить копию на стеке).
-        """
-        # 1. Вычисляем новое значение
-        val_code = node.value.accept(self)
+        # Оптимизация для 't' (else ветка)
+        is_always_true = isinstance(pred_node, TrueNode) or (
+                isinstance(pred_node, SymbolNode) and pred_node.name == 't')
 
-        # 2. Находим индекс переменной
-        info = self.current_env.resolve(node.var_name)
-        if not info:
-            raise RuntimeError(f"Variable '{node.var_name}' not defined")
+        if is_always_true:
+            return self._compile_body(body_nodes)
 
-        if info.wasm_loc_idx is not None:
-            # local.tee $i сохраняет значение в локал и оставляет его на стеке
-            return f"{val_code}\n    local.tee {info.wasm_loc_idx}"
+        # Компилируем предикат
+        code = pred_node.accept(self)
+
+        # Проверка условия: (val != 0.0) -> i32
+        code += "\n    f64.const 0.0\n    f64.ne"
+
+        # if (result f64) ...
+        code += "\n    (if (result f64)"
+
+        # THEN block
+        code += "\n      (then"
+        code += "\n        " + self._compile_body(body_nodes).replace("\n", "\n        ")
+        code += "\n      )"
+
+        # ELSE block
+        code += "\n      (else"
+        rest_clauses = node.clauses[1:]
+        if rest_clauses:
+            # Рекурсивно обрабатываем остальные ветки
+            else_code = self.visit_cond(CondNode(rest_clauses))
+            code += "\n        " + else_code.replace("\n", "\n        ")
         else:
-            raise NotImplementedError("Global setq not supported yet")
-    # Заглушки
+            code += "\n        f64.const 0.0"
+        code += "\n      )"
+
+        code += "\n    )"
+        return code
+
+    # --- Helper: Компиляция тела (последовательность выражений) ---
+
+    def _compile_body(self, nodes: List[ASTNode]) -> str:
+        """
+        Компилирует список выражений. Результат всех выражений, кроме последнего,
+        удаляется со стека (instruction `drop`).
+        """
+        if not nodes:
+            return "f64.const 0.0"
+
+        lines = []
+        for i in range(len(nodes) - 1):
+            lines.append(nodes[i].accept(self))
+            lines.append("    drop")  # Значение промежуточного выражения не нужно
+
+        # Последнее выражение оставляем на стеке как результат
+        lines.append(nodes[-1].accept(self))
+
+        return "\n".join(lines)
+
+    # --- Заглушки для неподдерживаемых функций ---
+
     def visit_string(self, node):
-        raise NotImplementedError()
-
-
-
+        raise NotImplementedError("Strings are not supported in WASM MVP")
 
     def visit_quote(self, node):
-        raise NotImplementedError()
+        raise NotImplementedError("Quote is not supported in WASM MVP (requires heap)")
 
     def visit_list(self, node):
-        raise NotImplementedError()
+        raise NotImplementedError("Lists are not supported in WASM MVP (requires heap)")
 
     def visit_lambda(self, node):
-        raise NotImplementedError()
-
-
+        raise NotImplementedError("Lambdas are not supported in WASM MVP")
