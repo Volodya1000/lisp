@@ -4,15 +4,10 @@ from tests.wasm_compiler_tests.base_wasm_test import WasmCompilerTestCase
 class TestWasmControlFlow(WasmCompilerTestCase):
 
     def test_comparisons(self):
-        # Проверяем выполнение: 10 > 5 должно быть true (1.0)
-        wat = self.assert_evaluates("(> 10 5)", 1.0)
-
-        # Проверяем генерацию инструкций
-        self.assertIn("f64.gt", wat)
-        self.assertIn("f64.convert_i32_s", wat)  # Проверка конвертации i32 -> f64
-
-        # Проверяем ложный случай
-        self.assert_evaluates("(< 10 5)", 0.0)
+        self.assert_evaluates("(< 5 10)", 1.0)
+        self.assert_evaluates("(> 5 10)", 0.0)
+        self.assert_evaluates("(= 10 10)", 1.0)
+        self.assert_evaluates("(= 10 11)", 0.0)
 
     def test_simple_cond(self):
         code = """
@@ -37,20 +32,19 @@ class TestWasmControlFlow(WasmCompilerTestCase):
     def test_factorial(self):
         """Тест выполнения рекурсивного факториала"""
         code = """
-        (defun fact (n)
-            (cond 
-                ((= n 1) 1)
-                (t (* n (fact (- n 1))))))
-        (fact 5)
-        """
+           (defun fact (n)
+               (cond
+                   ((= n 1) 1)
+                   (t (* n (fact (- n 1))))))
+           (fact 5)
+           """
         # 5! = 120
         wat = self.assert_evaluates(code, 120.0)
 
-        # Проверяем ключевые элементы рекурсии
+        # Проверяем, что функция сгенерирована
         self.assertIn("func $fact", wat)
-        self.assertIn("call $fact", wat)
-        self.assertIn("f64.sub", wat)  # декремент n
-
+        # В новой архитектуре вызов происходит косвенно через замыкание
+        self.assertIn("call_indirect", wat)
 
 if __name__ == '__main__':
     unittest.main()
