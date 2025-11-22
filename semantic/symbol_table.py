@@ -1,6 +1,3 @@
-"""
-Таблица символов с поддержкой вложенных областей видимости
-"""
 from dataclasses import dataclass
 from typing import Dict, Optional, Any
 
@@ -26,13 +23,14 @@ class Environment:
         '+', '-', '*', '/',
         'print', 'list', '=',
         '<', '>', '<=', '>=', 'not',
-        'length', 'str-concat'  # <--- Новые функции строк
+        'length', 'str-concat',
+        'princ' 
     }
 
     # Специальные формы
     SPECIAL_FORMS = {
         'quote', 'lambda', 'cond', 'setq', 'defun',
-        'progn', 'and', 'or'    # <--- Новые управляющие конструкции
+        'progn', 'and', 'or'
     }
 
     def __init__(self, parent: Optional['Environment'] = None):

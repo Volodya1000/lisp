@@ -2,7 +2,12 @@
 AST узлы, реализующие паттерн Visitor для компиляции
 """
 from abc import ABC, abstractmethod
-from typing import List, Any
+from dataclasses import dataclass, field
+from typing import List, Any, TYPE_CHECKING
+
+# Используем TYPE_CHECKING для избежания циклического импорта
+if TYPE_CHECKING:
+    from semantic.symbol_table import Environment
 
 
 class ASTVisitor(ABC):
@@ -62,170 +67,123 @@ class ASTNode(ABC):
         pass
 
 
-class SymbolNode(ASTNode):
-    def __init__(self, name: str):
-        self.name = name
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_symbol(self)
-
-    def __repr__(self):
-        return f"Symbol({self.name})"
-
-
-class NumberNode(ASTNode):
-    def __init__(self, value: float):
-        self.value = value
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_number(self)
-
-    def __repr__(self):
-        return f"Number({self.value})"
-
-
-class StringNode(ASTNode):
-    def __init__(self, value: str):
-        self.value = value
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_string(self)
-
-    def __repr__(self):
-        return f"String({self.value!r})"
-
-
+# Простые литеральные узлы без полей делаем frozen синглтонами
+@dataclass(frozen=True)
 class NilNode(ASTNode):
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_nil(self)
 
-    def __repr__(self):
-        return "Nil()"
 
-
+@dataclass(frozen=True)
 class TrueNode(ASTNode):
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_true(self)
 
-    def __repr__(self):
-        return "True()"
+
+@dataclass
+class SymbolNode(ASTNode):
+    name: str
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_symbol(self)
 
 
+@dataclass
+class NumberNode(ASTNode):
+    value: float
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_number(self)
+
+
+@dataclass
+class StringNode(ASTNode):
+    value: str
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_string(self)
+
+
+@dataclass
 class QuoteNode(ASTNode):
-    def __init__(self, expr: ASTNode):
-        self.expr = expr
+    expr: ASTNode
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_quote(self)
 
-    def __repr__(self):
-        return f"Quote({self.expr})"
 
-
-class LambdaNode(ASTNode):
-    def __init__(self, params: List[str], body: List[ASTNode], closure_env: 'Environment'):
-        self.params = params
-        self.body = body
-        self.closure_env = closure_env
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_lambda(self)
-
-    def __repr__(self):
-        return f"Lambda({self.params}, {len(self.body)} exprs)"
-
-
-class CallNode(ASTNode):
-    def __init__(self, func: ASTNode, args: List[ASTNode]):
-        self.func = func
-        self.args = args
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_call(self)
-
-    def __repr__(self):
-        return f"Call({self.func}, {self.args})"
-
-
-class PrimCallNode(ASTNode):
-    def __init__(self, prim_name: str, args: List[ASTNode]):
-        self.prim_name = prim_name
-        self.args = args
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_prim_call(self)
-
-    def __repr__(self):
-        return f"PrimCall({self.prim_name}, {self.args})"
-
-
-class SetqNode(ASTNode):
-    def __init__(self, var_name: str, value: ASTNode):
-        self.var_name = var_name
-        self.value = value
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_setq(self)
-
-    def __repr__(self):
-        return f"Setq({self.var_name}, {self.value})"
-
-
-class CondNode(ASTNode):
-    def __init__(self, clauses: List[tuple[ASTNode, List[ASTNode]]]):
-        self.clauses = clauses
-
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_cond(self)
-
-    def __repr__(self):
-        return f"Cond({len(self.clauses)} clauses)"
-
-
+@dataclass
 class ListNode(ASTNode):
-    def __init__(self, elements: List[ASTNode]):
-        self.elements = elements
+    elements: List[ASTNode] = field(default_factory=list)
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_list(self)
 
-    def __repr__(self):
-        return f"List({self.elements})"
+
+@dataclass
+class LambdaNode(ASTNode):
+    params: List[str] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+    closure_env: 'Environment' = field(default=None)
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_lambda(self)
 
 
+@dataclass
+class CallNode(ASTNode):
+    func: ASTNode
+    args: List[ASTNode] = field(default_factory=list)
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_call(self)
+
+
+@dataclass
+class PrimCallNode(ASTNode):
+    prim_name: str
+    args: List[ASTNode] = field(default_factory=list)
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_prim_call(self)
+
+
+@dataclass
+class SetqNode(ASTNode):
+    var_name: str
+    value: ASTNode
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_setq(self)
+
+
+@dataclass
+class CondNode(ASTNode):
+    clauses: List[tuple[ASTNode, List[ASTNode]]] = field(default_factory=list)
+
+    def accept(self, visitor: ASTVisitor) -> Any:
+        return visitor.visit_cond(self)
+
+@dataclass
 class DefunNode(ASTNode):
-    def __init__(self, name: str, params: List[str], body: List[ASTNode]):
-        self.name = name
-        self.params = params
-        self.body = body
+    name: str
+    params: List[str] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_defun(self)
 
-    def __repr__(self):
-        return f"Defun({self.name}, {self.params}, {len(self.body)} exprs)"
-
-
+@dataclass
 class PrognNode(ASTNode):
-    """Последовательное выполнение выражений"""
-    def __init__(self, body: List[ASTNode]):
-        self.body = body
+    body: List[ASTNode] = field(default_factory=list)
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_progn(self)
 
-    def __repr__(self):
-        return f"Progn({len(self.body)} exprs)"
-
-
+@dataclass
 class LogicNode(ASTNode):
-    """Логические операции AND / OR"""
-    def __init__(self, op: str, args: List[ASTNode]):
-        self.op = op
-        self.args = args
+    op: str
+    args: List[ASTNode] = field(default_factory=list)
 
     def accept(self, visitor: ASTVisitor) -> Any:
         return visitor.visit_logic(self)
-
-    def __repr__(self):
-        return f"Logic({self.op}, {self.args})"

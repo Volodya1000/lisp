@@ -6,9 +6,14 @@ from semantic.symbol_table import Environment
 class WasmCompiler(ASTVisitor):
     def __init__(self):
         self.global_env = Environment()
+        self._init_primitives()
         self.current_env = self.global_env
         self.funcs_code: List[str] = []
         self.global_vars: Set[str] = set()
+
+        # Для поддержки лямбд и косвенных вызовов
+        self.table_entries: List[str] = []  # Имена функций для таблицы: ['$func1', '$lambda_0', ...]
+        self.lambda_counter = 0
 
         self.math_ops = {
             '+': 'f64.add', '-': 'f64.sub', '*': 'f64.mul', '/': 'f64.div'
@@ -17,6 +22,11 @@ class WasmCompiler(ASTVisitor):
             '=': 'f64.eq', '<': 'f64.lt', '>': 'f64.gt',
             '<=': 'f64.le', '>=': 'f64.ge', '!=': 'f64.ne'
         }
+
+    def _init_primitives(self):
+        for name in Environment.PRIMITIVES:
+            # Определяем их как функции, чтобы visit_call распознал их как прямой вызов
+            self.global_env.define(name, is_function=True)
 
     def compile(self, nodes: List[ASTNode]) -> str:
         self._scan_definitions(nodes)
@@ -28,9 +38,15 @@ class WasmCompiler(ASTVisitor):
             else:
                 main_nodes.append(node)
 
+        # Генерируем тело main, в процессе могут появиться лямбды
+        main_body = self._compile_block(main_nodes) if main_nodes else "f64.const 0.0"
+
+        # Сборка модуля
         wat = '(module\n'
         wat += self._get_imports()
         wat += self._get_memory_config()
+        wat += self._get_type_definitions()  # Типы для call_indirect
+        wat += self._get_table_config()  # Таблица функций
         wat += self._get_globals_definitions()
         wat += self._get_std_lib()
 
@@ -38,12 +54,8 @@ class WasmCompiler(ASTVisitor):
             wat += func_code + '\n'
 
         wat += '  (func $main (export "main") (result f64)\n'
-        if main_nodes:
-            main_body = self._compile_block(main_nodes)
-            wat += self._indent(main_body, 4)
-        else:
-            wat += '    f64.const 0.0\n'
-        wat += '  )\n'
+        wat += self._indent(main_body, 4)
+        wat += '\n  )\n'
         wat += ')'
         return wat
 
@@ -56,15 +68,36 @@ class WasmCompiler(ASTVisitor):
     def _get_memory_config(self) -> str:
         return '  (memory (export "memory") 1)\n'
 
+    def _get_type_definitions(self) -> str:
+        """Генерирует сигнатуры типов для call_indirect (от 0 до 10 аргументов)"""
+        types = ""
+        for i in range(11):
+            params = " ".join(["(param f64)"] * i)
+            types += f"  (type $type_{i} (func {params} (result f64)))\n"
+        return types
+
+    def _get_table_config(self) -> str:
+        """Создает таблицу функций и заполняет её (elem ...)"""
+        count = len(self.table_entries)
+        if count == 0:
+            return "  (table 0 funcref)\n"
+
+        config = f"  (table {count} funcref)\n"
+        # Заполняем таблицу именами функций, начиная с индекса 0
+        funcs_list = " ".join(self.table_entries)
+        config += f"  (elem (i32.const 0) {funcs_list})\n"
+        return config
+
     def _get_globals_definitions(self) -> str:
         code = '  (global $heap_ptr (mut i32) (i32.const 8))\n'
-        # Временная переменная для OR и свопов
         code += '  (global $scratch (mut f64) (f64.const 0.0))\n'
         for g_var in self.global_vars:
             code += f'  (global ${g_var} (mut f64) (f64.const 0.0))\n'
         return code
 
     def _get_std_lib(self) -> str:
+        # (Вставьте сюда полный код std_lib из предыдущих ответов)
+        # Для краткости я приведу только начало, но в файле должен быть весь код
         return """
   (func $std_cons (param $car f64) (param $cdr f64) (result f64)
     (local $addr i32)
@@ -266,6 +299,9 @@ class WasmCompiler(ASTVisitor):
         for node in nodes:
             if isinstance(node, DefunNode):
                 self.global_env.define(node.name, is_function=True)
+                # Регистрируем именованные функции в таблице тоже?
+                # Пока нет, если нужно передавать defun как значение,
+                # нужно будет добавить logic. Для MVP - нет.
             elif isinstance(node, SetqNode):
                 self.global_vars.add(node.var_name)
                 self.global_env.define(node.var_name, is_function=False)
@@ -305,16 +341,78 @@ class WasmCompiler(ASTVisitor):
         self.funcs_code.append(func_wat)
         return ""
 
+    def visit_lambda(self, node: LambdaNode) -> str:
+        """
+        Компиляция лямбды:
+        1. Генерируем уникальное имя для функции.
+        2. Компилируем тело функции.
+        3. Добавляем функцию в список кода.
+        4. Добавляем имя функции в таблицу (Table).
+        5. Возвращаем индекс этой функции в таблице как f64.
+        """
+        name = f"$lambda_{self.lambda_counter}"
+        self.lambda_counter += 1
+
+        # Создаем окружение (Примечание: замыкания не поддерживаются,
+        # доступ только к аргументам и глобальным переменным)
+        func_env = Environment(parent=self.global_env)
+        prev_env = self.current_env
+        self.current_env = func_env
+
+        for param in node.params:
+            self.current_env.define_wasm_local(param)
+
+        body_wat = self._compile_block(node.body)
+        self.current_env = prev_env  # Восстанавливаем
+
+        params_wat = " ".join(["(param f64)" for _ in node.params])
+
+        # Создаем WAT код функции
+        func_wat = f'  (func {name} {params_wat} (result f64)\n'
+        func_wat += self._indent(body_wat, 4) + '\n'
+        func_wat += '  )'
+        self.funcs_code.append(func_wat)
+
+        # Регистрируем в таблице
+        self.table_entries.append(name)
+        index = len(self.table_entries) - 1
+
+        return f"f64.const {index}.0"
+
     def visit_call(self, node: CallNode) -> str:
-        func_name = node.func.name if isinstance(node.func, SymbolNode) else None
-        if func_name == 'princ':
-            return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
+        # Пытаемся определить, является ли это прямым вызовом известной функции
+        is_direct_call = False
+        func_name = None
 
-        if not func_name:
-            raise NotImplementedError("Indirect calls not supported")
+        if isinstance(node.func, SymbolNode):
+            sym = self.global_env.resolve(node.func.name)
+            # Если символ определен как ФУНКЦИЯ (defun/primitive), то это прямой вызов
+            # Если как переменная, то это indirect call
+            if sym and sym.is_function:
+                is_direct_call = True
+                func_name = node.func.name
 
-        args_code = "\n".join([arg.accept(self) for arg in node.args])
-        return f"{args_code}\ncall ${func_name}"
+        if is_direct_call:
+            if func_name == 'princ':
+                return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
+            args_code = "\n".join([arg.accept(self) for arg in node.args])
+            return f"{args_code}\ncall ${func_name}"
+        else:
+            # Indirect Call (вызов лямбды или функции из переменной)
+            # 1. Компилируем аргументы
+            args_code = "\n".join([arg.accept(self) for arg in node.args])
+
+            # 2. Компилируем выражение функции (должно вернуть индекс таблицы)
+            func_expr_code = node.func.accept(self)
+
+            # 3. Определяем тип функции по количеству аргументов
+            arity = len(node.args)
+            type_sig = f"$type_{arity}"
+
+            # 4. Собираем вызов
+            # Стек: [arg1, arg2, ..., func_index_f64]
+            # Нам нужно: [arg1, arg2, ..., func_index_i32] -> call_indirect
+            return f"{args_code}\n{func_expr_code}\ni32.trunc_f64_u\ncall_indirect (type {type_sig})"
 
     def visit_setq(self, node: SetqNode) -> str:
         val_code = node.value.accept(self)
@@ -335,7 +433,11 @@ class WasmCompiler(ASTVisitor):
         if info.wasm_loc_idx is not None:
             return f"local.get {info.wasm_loc_idx}"
         elif info.is_function:
-            raise RuntimeError(f"Cannot use function '{node.name}' as variable")
+            # Если имя функции используется как значение (например, передается в другую функцию),
+            # мы должны вернуть её индекс в таблице. Но мы пока не регистрируем defun-ы в таблице.
+            # Для MVP выбросим ошибку или вернем 0.
+            raise RuntimeError(
+                f"Function '{node.name}' cannot be used as value (only lambdas supported as values in MVP)")
         else:
             if node.name not in self.global_vars:
                 self.global_vars.add(node.name)
@@ -366,11 +468,6 @@ class WasmCompiler(ASTVisitor):
         return self._compile_quoted_data(node.expr)
 
     def _compile_quoted_data(self, node: ASTNode) -> str:
-        """
-        Компиляция данных внутри quote.
-        Здесь символы - это просто данные (пока не реализованы как Symbols),
-        числа - числа, списки - вызовы visit_list.
-        """
         if isinstance(node, NumberNode):
             return f"f64.const {node.value}"
         elif isinstance(node, NilNode):
@@ -379,31 +476,16 @@ class WasmCompiler(ASTVisitor):
             return self.visit_string(node)
         elif isinstance(node, ListNode):
             return self.visit_list(node)
-        elif isinstance(node, SymbolNode):
-            # В будущем здесь можно возвращать интернированный символ
-            # Пока для упрощения вернем 0 (nil) или заглушку,
-            # но чтобы тесты с '(a b) работали как списки, нам важно,
-            # что visit_list рекурсивно сюда зайдет.
-            return "f64.const 0.0"
         else:
             return "f64.const 0.0"
 
     def visit_list(self, node: ListNode) -> str:
-        """
-        Реализация компиляции сырого списка (ListNode).
-        ListNode в нашем AST появляется только внутри Quote.
-        Мы должны скомпилировать элементы как ДАННЫЕ и собрать их в список через cons.
-        """
         if not node.elements:
             return "f64.const 0.0"
-
-        code = "f64.const 0.0"  # Конец списка (nil)
-
-        # Итерируемся с конца к началу: (cons last nil), потом (cons prev result) ...
+        code = "f64.const 0.0"
         for elem in reversed(node.elements):
             elem_code = self._compile_quoted_data(elem)
             code = f"{elem_code}\n{code}\ncall $std_cons"
-
         return code
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
@@ -426,16 +508,16 @@ class WasmCompiler(ASTVisitor):
             args = "\n".join([arg.accept(self) for arg in node.args])
             return f"{args}\ncall $std_is_nil"
         elif node.prim_name == 'list':
-            # Runtime list construction: (list 1 2 3) -> (cons 1 (cons 2 (cons 3 nil)))
             code = "f64.const 0.0"
             for arg in reversed(node.args):
                 code = f"{arg.accept(self)}\n{code}\ncall $std_cons"
             return code
         elif node.prim_name == 'print':
             return f"{node.args[0].accept(self)}\ncall $print_number\nf64.const 0.0"
+        elif node.prim_name == 'princ':
+            return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
         else:
             raise NotImplementedError(f"Primitive {node.prim_name} not implemented")
-
     def visit_cond(self, node: CondNode) -> str:
         if not node.clauses:
             return "f64.const 0.0"
@@ -477,6 +559,3 @@ class WasmCompiler(ASTVisitor):
             return f"{curr_code}\nf64.const 0.0\nf64.ne\n(if (result f64) (then {self._indent(rest_code, 4)}) (else f64.const 0.0))"
         elif op == 'or':
             return f"{curr_code}\nglobal.set $scratch\nglobal.get $scratch\nf64.const 0.0\nf64.ne\n(if (result f64) (then global.get $scratch) (else {self._indent(rest_code, 4)}))"
-
-    def visit_lambda(self, node):
-        raise NotImplementedError("Lambdas not yet supported")
