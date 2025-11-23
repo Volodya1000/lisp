@@ -1,7 +1,8 @@
 import sys
 import os
 import argparse
-import antlr4
+
+from antlr4 import InputStream, CommonTokenStream
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
@@ -28,9 +29,9 @@ def main():
 
     # 1. Parse & Analyze
     try:
-        input_stream = antlr4.InputStream(code)
+        input_stream = InputStream(code)
         lexer = lispLexer(input_stream)
-        stream = antlr4.CommonTokenStream(lexer)
+        stream = CommonTokenStream(lexer)
         parser = lispParser(stream)
         tree = parser.program()
 

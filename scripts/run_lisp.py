@@ -6,10 +6,9 @@ import wasmtime
 import struct
 import ctypes
 
-# Добавляем корневую директорию в путь, чтобы импорты работали
+# Указываем путь к корню проекта
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
-
 
 from gen.lispLexer import lispLexer
 from gen.lispParser import lispParser
@@ -26,44 +25,55 @@ class WasmRunner:
         self._setup_imports()
 
     def _setup_imports(self):
-        # Реализация функций, которые Lisp может вызывать (print, princ)
+        # 1. Функция вывода числа (print)
+        # ИСПРАВЛЕНО: Убран аргумент 'caller', так как access_caller=False по умолчанию
+        def print_number_impl(val):
+            if val.is_integer():
+                print(int(val))
+            else:
+                print(val)
 
-        def print_number_impl(caller, val):
-            print(f"[LISP OUTPUT]: {val}")
-
+        # 2. Функция вывода строки (princ)
+        # Здесь нужен caller для доступа к памяти, поэтому access_caller=True остается
         def princ_impl(caller, ptr):
-            # Получаем доступ к памяти
             mem = caller.get("memory")
             if mem is None: return
 
-            # Поддержка разных версий wasmtime
             if hasattr(mem, "data_ptr"):
                 data_ptr = mem.data_ptr(caller)
                 data_len = mem.data_len(caller)
                 raw_memory = ctypes.string_at(data_ptr, data_len)
             else:
-                # Fallback (может не работать в новых версиях)
-                print("[WARN] Cannot access memory for princ")
                 return
 
             offset = int(ptr)
             if offset == 0: return
 
-            # Читаем длину строки (первые 4 байта)
             length = struct.unpack('<I', raw_memory[offset:offset + 4])[0]
-            # Читаем байты строки
             str_bytes = raw_memory[offset + 4: offset + 4 + length]
             text = str_bytes.decode('utf-8', errors='replace')
+            print(text, end='', flush=True)
 
-            print(text, end='')  # princ не ставит перенос строки
+        # 3. Функция ВВОДА (read)
+        # ИСПРАВЛЕНО: Убран аргумент 'caller', он здесь не нужен
+        def read_num_impl():
+            try:
+                text = input(" > ")
+                return float(text)
+            except ValueError:
+                print("[Runtime] Ошибка: введено не число, использую 0.0")
+                return 0.0
 
-        # Регистрируем функции в "env"
+        # Регистрируем функции
+
+        # print_number: принимает f64, ничего не возвращает
         self.linker.define_func(
             "env", "print_number",
             wasmtime.FuncType([wasmtime.ValType.f64()], []),
             print_number_impl
         )
 
+        # princ: принимает f64 (ptr), нужен доступ к памяти (access_caller=True)
         self.linker.define_func(
             "env", "princ",
             wasmtime.FuncType([wasmtime.ValType.f64()], []),
@@ -71,16 +81,29 @@ class WasmRunner:
             access_caller=True
         )
 
+        # read_num: 0 аргументов, возвращает f64
+        self.linker.define_func(
+            "env", "read_num",
+            wasmtime.FuncType([], [wasmtime.ValType.f64()]),
+            read_num_impl
+        )
+
     def run(self, wat_code: str):
         try:
             module = wasmtime.Module(self.engine, wat_code)
             instance = self.linker.instantiate(self.store, module)
 
+            # В новой версии компилятора код инициализации может быть разбросан,
+            # но точка входа всегда main
             main_func = instance.exports(self.store)["main"]
+
             result = main_func(self.store)
 
-            print(f"\n[PROGRAM FINISHED]")
-            print(f"Result: {result}")
+            # Если результат не 0 (princ обычно возвращает 0), выведем его
+            if result != 0.0:
+                print(f"\n[Finished] Result: {result}")
+            else:
+                print("\n[Finished]")
 
         except wasmtime.WasmtimeError as e:
             print(f"[RUNTIME ERROR]: {e}")
@@ -100,51 +123,41 @@ def main():
     with open(args.file, 'r', encoding='utf-8') as f:
         code = f.read()
 
-    print(f"--- Running {args.file} ---")
+    print(f"--- Executing {args.file} ---")
 
-    # 1. Parsing
+    # Parsing
     try:
         input_stream = antlr4.InputStream(code)
         lexer = lispLexer(input_stream)
         stream = antlr4.CommonTokenStream(lexer)
         parser = lispParser(stream)
-
-        # Отключаем стандартный вывод ошибок ANTLR в консоль, если нужно
-        # parser.removeErrorListeners()
-
         tree = parser.program()
-
         if parser.getNumberOfSyntaxErrors() > 0:
-            print("Parsing failed with syntax errors.")
+            print("Parsing failed.")
             sys.exit(1)
-
     except Exception as e:
         print(f"Parsing Error: {e}")
         sys.exit(1)
 
-    # 2. Semantic Analysis
+    # Semantic Analysis
     try:
         analyzer = SemanticAnalyzer()
         ast = analyzer.visit(tree)
-        print("[OK] Semantic Analysis passed.")
     except Exception as e:
-        print(f"\n[SEMANTIC ERROR]: {e}")
+        print(f"Semantic Error: {e}")
         sys.exit(1)
 
-    # 3. Compilation
+    # Compilation
     try:
         compiler = WasmCompiler()
         wat = compiler.compile(ast)
-        print("[OK] Compilation to WAT successful.")
     except Exception as e:
-        print(f"\n[COMPILATION ERROR]: {e}")
+        print(f"Compilation Error: {e}")
         sys.exit(1)
 
-    # 4. Execution
-    print("-" * 30)
+    # Execution
     runner = WasmRunner()
     runner.run(wat)
-    print("-" * 30)
 
 
 if __name__ == "__main__":

@@ -78,6 +78,7 @@ class WasmCompiler(ASTVisitor):
         return """
   (import "env" "print_number" (func $print_number (param f64)))
   (import "env" "princ" (func $princ (param f64)))
+  (import "env" "read_num" (func $read_num (result f64))) 
 """
 
     def _get_memory_config(self) -> str:
@@ -263,6 +264,9 @@ class WasmCompiler(ASTVisitor):
         return "\n".join(code)
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
+        if node.prim_name == 'read':
+            return "call $read_num"
+
         if node.prim_name == 'princ':
             return f"{node.args[0].accept(self)}\ncall $princ\nf64.const 0.0"
 
