@@ -53,3 +53,4 @@ class CompilerContext:
     def exit_function(self, prev_env: Environment, prev_state: bool):
         self.current_env = prev_env
         self.is_inside_func = prev_state
+
