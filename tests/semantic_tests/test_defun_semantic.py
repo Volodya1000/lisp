@@ -1,10 +1,11 @@
 from semantic.ast_nodes import *
+from semantic.diagnostics import ArityError, TypeMismatchError
 from tests.semantic_tests.base_semantic_test import BaseSemanticTest
 import pytest
 
 
 class TestDefunSemantics(BaseSemanticTest):
-    """Расширенные тесты для defun"""
+    """Расширенные тесты для defun (корректные случаи)"""
 
     def test_defun_recursion(self):
         """Тест рекурсивного вызова (факториал)"""
@@ -15,10 +16,7 @@ class TestDefunSemantics(BaseSemanticTest):
         """
         nodes, analyzer = self.parse_and_analyze(code)
 
-        # Проверяем, что внутри тела функции 'fact' разрешается корректно
         defun_node = nodes[0]
-        # Внутри cond -> clause -> call -> func
-        # Это глубокая проверка, но главное, что анализ прошел без ошибок
         assert isinstance(defun_node, DefunNode)
         assert defun_node.name == "fact"
         assert analyzer.global_env.resolve("fact").is_function is True
@@ -49,48 +47,69 @@ class TestDefunSemantics(BaseSemanticTest):
         """
         nodes, analyzer = self.parse_and_analyze(code)
         defun_node = nodes[1]
-
-        # Проверяем, что тело функции анализировалось в окружении, где x - локальный
-        # (Это косвенная проверка, в AST мы увидим SymbolNode,
-        # но семантический анализатор не должен был упасть)
         assert defun_node.params == ["x"]
 
     def test_defun_param_name_is_primitive(self):
         """
-        КРИТИЧЕСКИЙ ТЕСТ для вашей логики: elif isinstance(params_ast, PrimCallNode).
-        Если параметры (list a), парсер может подумать, что это вызов функции list.
-        Defun должен понять, что 'list' это имя параметра.
+        КРИТИЧЕСКИЙ ТЕСТ: параметр с именем примитива (list).
         """
         code = "(defun my-func (list x) list)"
         nodes, _ = self.parse_and_analyze(code)
 
         assert isinstance(nodes[0], DefunNode)
-        # Проверяем, что list попал в параметры, а не остался вызовом
         assert nodes[0].params == ["list", "x"]
-        # Проверяем тело: это должен быть символ 'list', а не примитив list
         assert isinstance(nodes[0].body[0], SymbolNode)
         assert nodes[0].body[0].name == "list"
 
 
 class TestDefunErrors(BaseSemanticTest):
-    """Тесты ошибок для defun"""
+    """Тесты ошибок для defun (адаптированные под Error Collector)"""
 
     def test_defun_arg_count_error(self):
         """Слишком мало аргументов"""
-        with pytest.raises(SyntaxError, match="defun требует имя"):
-            self.parse_and_analyze("(defun my-func)")
+        # (defun my-func) -> не хватает параметров и тела
+        nodes, analyzer = self.parse_and_analyze("(defun my-func)")
+
+        assert analyzer.collector.has_errors()
+        error = analyzer.collector.errors[0]
+
+        # Ожидаем ошибку арности
+        assert isinstance(error, ArityError)
+        assert error.func_name == "defun"
 
     def test_defun_invalid_name(self):
         """Имя функции не символ"""
-        with pytest.raises(SyntaxError, match="Имя функции.*должно быть символом"):
-            self.parse_and_analyze("(defun 123 (x) x)")
+        # (defun 123 ...) -> имя должно быть символом
+        nodes, analyzer = self.parse_and_analyze("(defun 123 (x) x)")
+
+        assert analyzer.collector.has_errors()
+        error = analyzer.collector.errors[0]
+
+        # Ожидаем ошибку типа
+        assert isinstance(error, TypeMismatchError)
+        assert error.expected_type == "Symbol"
+        assert error.actual_type == "NumberNode"
 
     def test_defun_params_not_list(self):
         """Параметры не являются списком"""
-        with pytest.raises(SyntaxError, match="Ожидался список параметров"):
-            self.parse_and_analyze("(defun f 123 x)")
+        # (defun f 123 x) -> вместо (x) передано число 123
+        nodes, analyzer = self.parse_and_analyze("(defun f 123 x)")
+
+        assert analyzer.collector.has_errors()
+        error = analyzer.collector.errors[0]
+
+        assert isinstance(error, TypeMismatchError)
+        assert error.expected_type == "List"
+        # 123 парсится как NumberNode
+        assert error.actual_type == "NumberNode"
 
     def test_defun_invalid_param_type(self):
         """В списке параметров не символы"""
-        with pytest.raises(SyntaxError, match="Параметр должен быть символом"):
-            self.parse_and_analyze("(defun f (x 1) x)")
+        # (defun f (x 1) x) -> параметр 1 невалиден
+        nodes, analyzer = self.parse_and_analyze("(defun f (x 1) x)")
+
+        assert analyzer.collector.has_errors()
+        error = analyzer.collector.errors[0]
+
+        assert isinstance(error, TypeMismatchError)
+        assert "must be a symbol" in error.message
