@@ -24,14 +24,15 @@ class WasmCompilerTestCase(unittest.TestCase):
         self._setup_default_imports()
 
     def _setup_default_imports(self):
-        """Определяет стандартные функции env.read_number, env.print_number и env.princ"""
+        """Определяет стандартные функции env.read_num, env.print_number и env.princ"""
 
-        # --- Dummy input ---
-        # Лямбда принимает 0 аргументов (по сигнатуре WASM)
+        # --- Dummy input (read) ---
+        # ИСПРАВЛЕНО: имя изменено с "read_number" на "read_num",
+        # чтобы совпадать с тем, что генерирует компилятор.
         self.linker.define_func(
-            "env", "read_number",
+            "env", "read_num",
             wasmtime.FuncType([], [wasmtime.ValType.f64()]),
-            lambda: 0.0
+            lambda: 0.0  # В тестах ввод всегда возвращает 0.0
         )
 
         # --- Print number (console log) ---
