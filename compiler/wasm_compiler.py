@@ -5,46 +5,60 @@ from semantic.symbol_table import Environment, SymbolInfo
 from .wasm_context import CompilerContext
 from .wasm_stdlib import WasmStdLib
 from .wasm_primitives import PrimitiveHandler
+from .wasm_types import WasmType, OpCode
 
 
 class CompilerError(Exception):
     pass
 
 
-class StackFrame:
+class FramePolicy:
     """
-    Инкапсулирует логику расчета смещений в стековом кадре (Env).
-    Layout:
-    [0..8]   - Ссылка на родительский Env
-    [8..16]  - Параметр 1
-    [16..24] - Параметр 2
-    ...
+    Единый источник правды о структуре стекового кадра в памяти (Environment).
+    Layout: [ParentEnvPtr (8b)] [Var0 (8b)] [Var1 (8b)] ...
     """
     WORD_SIZE = 8
+    ENV_PTR_OFFSET = 0
 
-    def __init__(self, params: List[str], local_vars_count: int):
-        self.params = params
-        # +1 слот для parent env
-        self.total_slots = 1 + len(params) + local_vars_count
-        self.size_bytes = self.total_slots * self.WORD_SIZE
+    @staticmethod
+    def get_offset(var_index: int) -> int:
+        # Индекс 0 идет сразу после EnvPtr (смещение 0)
+        return FramePolicy.WORD_SIZE + (var_index * FramePolicy.WORD_SIZE)
 
-    def get_param_offset(self, index: int) -> int:
-        # param 0 лежит по смещению 8 (после parent env)
-        return (index + 1) * self.WORD_SIZE
+    @staticmethod
+    def calculate_size(vars_count: int) -> int:
+        # 1 слот под ParentEnvPtr + переменные
+        return (1 + vars_count) * FramePolicy.WORD_SIZE
 
 
 class WatBuilder:
-    """Помощник для сборки WASM-кода без конкатенации строк"""
+    """Структурированный билдер для генерации WAT"""
 
     def __init__(self):
         self.lines: List[str] = []
 
-    def add(self, line: str):
+    def raw(self, line: str):
+        """Для вставки готовых кусков кода"""
         self.lines.append(line)
 
-    def add_block(self, text: str):
-        if text.strip():
-            self.lines.append(text)
+    def emit(self, op: str, type_hint: Optional[str] = None):
+        """Пример: emit(OpCode.ADD, WasmType.F64) -> f64.add"""
+        if type_hint:
+            self.lines.append(f"{type_hint}.{op}")
+        else:
+            self.lines.append(op)
+
+    def emit_const(self, value, type_hint: str = WasmType.F64):
+        self.lines.append(f"{type_hint}.const {value}")
+
+    def emit_get(self, name: str, scope: str = 'local'):
+        self.lines.append(f"{scope}.get {name}")
+
+    def emit_set(self, name: str, scope: str = 'local'):
+        self.lines.append(f"{scope}.set {name}")
+
+    def emit_call(self, func_name: str):
+        self.lines.append(f"call {func_name}")
 
     def build(self) -> str:
         return "\n".join(self.lines)
@@ -66,7 +80,6 @@ class WasmCompiler(ASTVisitor):
 
         main_nodes: List[ASTNode] = []
         for node in nodes:
-            # Defun компилируются отдельно и добавляются в self.ctx.funcs_code
             if isinstance(node, DefunNode):
                 node.accept(self)
             else:
@@ -76,47 +89,50 @@ class WasmCompiler(ASTVisitor):
         return self._build_final_module(nodes, main_body)
 
     def _build_final_module(self, nodes: List[ASTNode], main_body: str) -> str:
-        # Использование WatBuilder для структуры модуля
         wb = WatBuilder()
-        wb.add('(module')
-        wb.add(WasmStdLib.get_imports())
-        wb.add(WasmStdLib.get_memory_config())
-        wb.add(self._get_type_definitions())
-        wb.add(self._get_table_config())
-        wb.add(WasmStdLib.get_globals(self.ctx.global_vars))
-        wb.add(WasmStdLib.get_runtime_funcs())
+        wb.raw('(module')
+        wb.raw(WasmStdLib.get_imports())
+        wb.raw(WasmStdLib.get_memory_config())
 
-        # Добавляем код всех функций (defun + lambda)
+        # 1. Генерация типов теперь происходит В КОНЦЕ, но мы размещаем вызов тут.
+        # Поскольку types собираются по ходу дела, их нужно генерировать, когда compiled code уже готов.
+        # Но Wasm требует определения типов в начале.
+        # Поэтому мы сначала собираем код функций в ctx, а потом генерируем структуру.
+        # В текущей архитектуре compile() уже вызвал visit_defun, так что типы собраны.
+        wb.raw(self.ctx.type_registry.generate_definitions())
+
+        wb.raw(self._get_table_config())
+        wb.raw(WasmStdLib.get_globals(self.ctx.global_vars))
+        wb.raw(WasmStdLib.get_runtime_funcs())
+
         for func_code in self.ctx.funcs_code:
-            wb.add(func_code)
+            wb.raw(func_code)
 
-        wb.add(self._generate_main_func(nodes, main_body))
-        wb.add(')')
+        wb.raw(self._generate_main_func(nodes, main_body))
+        wb.raw(')')
         return wb.build()
 
     def _generate_main_func(self, nodes: List[ASTNode], main_body: str) -> str:
         wb = WatBuilder()
-        wb.add('  (func $main (export "main") (result f64)')
-        wb.add('    (local $env f64)')
-        wb.add('    f64.const 0.0')
-        wb.add('    local.set $env')
+        wb.raw('  (func $main (export "main") (result f64)')
+        wb.raw('    (local $env f64)')
+        wb.emit_const('0.0')
+        wb.emit_set('$env')
 
-        # Инициализация глобальных функций (создание замыканий для Defun)
         for node in nodes:
             if isinstance(node, DefunNode):
-                # Если функция есть в таблице (она там должна быть)
                 try:
                     func_idx = self.ctx.table_entries.index(f"${node.name}")
-                    wb.add(f"    ;; Init {node.name}")
-                    wb.add(f"    f64.const {func_idx}.0")
-                    wb.add(f"    f64.const 0.0")
-                    wb.add(f"    call $std_cons")
-                    wb.add(f"    global.set ${node.name}")
+                    wb.raw(f"    ;; Init {node.name}")
+                    wb.emit_const(f"{func_idx}.0")
+                    wb.emit_const('0.0')
+                    wb.emit_call('$std_cons')
+                    wb.emit_set(f"${node.name}", 'global')
                 except ValueError:
                     pass
 
-        wb.add(self._indent(main_body, 4))
-        wb.add('  )')
+        wb.raw(self._indent(main_body, 4))
+        wb.raw('  )')
         return wb.build()
 
     def _scan_definitions(self, nodes: List[ASTNode]):
@@ -127,16 +143,9 @@ class WasmCompiler(ASTVisitor):
             elif isinstance(node, SetqNode):
                 self.ctx.define_global(node.var_name)
 
-    # --- Core Logic Extraction ---
+    # --- Core Logic ---
 
     def _compile_function_base(self, name: str, params: List[str], body_nodes: List[ASTNode], env: Environment) -> str:
-        """
-        Единая логика компиляции тела функции (для Defun и Lambda).
-        1. Входит в Env.
-        2. Компилирует тело.
-        3. Генерирует пролог (аллокация фрейма).
-        4. Оборачивает в (func ...).
-        """
         prev_env = self.ctx.current_env
         prev_is_inside = self.ctx.is_inside_func
 
@@ -144,46 +153,76 @@ class WasmCompiler(ASTVisitor):
 
         body_wat = self._compile_block(body_nodes)
 
-        # Используем StackFrame для расчета памяти
-        # Добавляем запас +10 слотов для локальных переменных (let и т.д.)
-        frame = StackFrame(params, env.current_var_index + 10)
-        prologue = self._generate_prologue(frame)
+        # Регистрация типа функции (arity)
+        arity = len(params)
+        self.ctx.type_registry.get_or_register(arity)
+
+        # Расчет размера фрейма
+        # +10 для запаса под локальные переменные (не идеальное решение, но соответствует текущей логике)
+        frame_size = FramePolicy.calculate_size(env.current_var_index + 10)
+        prologue = self._generate_prologue(params, frame_size)
 
         self.ctx.exit_function(prev_env, prev_is_inside)
 
-        params_wat = "(param $env f64) " + " ".join(["(param f64)" for _ in params])
+        params_wat = "(param $env f64) " + " ".join([f"(param {WasmType.F64})" for _ in params])
 
         wb = WatBuilder()
-        wb.add(f'  (func {name} {params_wat} (result f64)')
-        wb.add('    (local $new_env_addr i32)')
-        wb.add(self._indent(prologue, 4))
-        wb.add(self._indent(body_wat, 4))
-        wb.add('  )')
+        wb.raw(f'  (func {name} {params_wat} (result f64)')
+        wb.raw('    (local $new_env_addr i32)')
+        wb.raw(self._indent(prologue, 4))
+        wb.raw(self._indent(body_wat, 4))
+        wb.raw('  )')
 
         return wb.build()
 
-    def _generate_prologue(self, frame: StackFrame) -> str:
+    def _generate_prologue(self, params: List[str], size_bytes: int) -> str:
         wb = WatBuilder()
-        wb.add(f";; -- Alloc Frame (size {frame.size_bytes}) --")
-        wb.add("global.get $heap_ptr")
-        wb.add("local.tee $new_env_addr")
-        wb.add(f"i32.const {frame.size_bytes}")
-        wb.add("i32.add")
-        wb.add("global.set $heap_ptr")
+        wb.raw(f";; -- Alloc Frame (size {size_bytes}) --")
 
-        wb.add(";; Store Parent Env at offset 0")
-        wb.add("local.get $new_env_addr")
-        wb.add("local.get $env")
-        wb.add("f64.store")
+        wb.emit_get('$heap_ptr', 'global')
+        wb.emit(OpCode.TEE, 'local')  # local.tee $new_env_addr
+        wb.raw('$new_env_addr')  # аргумент для tee
 
-        for i, param in enumerate(frame.params):
-            offset = frame.get_param_offset(i)
-            wb.add(f";; Store param '{param}' offset {offset}")
-            wb.add("local.get $new_env_addr")
-            wb.add(f"i32.const {offset}")
-            wb.add("i32.add")
-            wb.add(f"local.get {i + 1}")  # +1 потому что $env это param 0
-            wb.add("f64.store")
+        wb.emit_const(size_bytes, WasmType.I32)
+        wb.emit(OpCode.ADD, WasmType.I32)
+        wb.emit_set('$heap_ptr', 'global')
+
+        wb.raw(";; Store Parent Env")
+        wb.emit_get('$new_env_addr')
+        wb.emit_get('$env')
+        wb.emit(OpCode.STORE, WasmType.F64)
+
+        for i, param in enumerate(params):
+            # Используем FramePolicy для расчета смещения
+            offset = FramePolicy.get_offset(i)
+
+            wb.raw(f";; Store param '{param}' offset {offset}")
+            wb.emit_get('$new_env_addr')
+            wb.emit_const(offset, WasmType.I32)
+            wb.emit(OpCode.ADD, WasmType.I32)
+            wb.raw(f"local.get {i + 1}")  # +1 т.к. env первый
+            wb.emit(OpCode.STORE, WasmType.F64)
+
+        return wb.build()
+
+    def _emit_var_addr(self, info: SymbolInfo) -> str:
+        """Генерирует код для получения адреса переменной в памяти"""
+        wb = WatBuilder()
+
+        base_ptr = "local.get $new_env_addr" if self.ctx.is_inside_func else "local.get $env\ni32.trunc_f64_u"
+        wb.raw(base_ptr)
+
+        hops = self.ctx.current_env.level - info.env_level
+        for _ in range(hops):
+            # Переход по Parent Env (он всегда по смещению 0)
+            wb.emit(OpCode.LOAD, WasmType.F64)
+            wb.emit(OpCode.TRUNC_U, WasmType.I32)
+
+        # Используем единую политику смещений
+        offset = FramePolicy.get_offset(info.var_index)
+
+        wb.emit_const(offset, WasmType.I32)
+        wb.emit(OpCode.ADD, WasmType.I32)
 
         return wb.build()
 
@@ -192,11 +231,9 @@ class WasmCompiler(ASTVisitor):
     def visit_defun(self, node: DefunNode):
         func_name = f"${node.name}"
         self.ctx.register_function(func_name)
-
         func_env = Environment(parent=self.global_env)
         for param in node.params: func_env.define(param)
 
-        # Вызов общей логики
         func_code = self._compile_function_base(func_name, node.params, node.body, func_env)
         self.ctx.funcs_code.append(func_code)
         return ""
@@ -204,83 +241,58 @@ class WasmCompiler(ASTVisitor):
     def visit_lambda(self, node: LambdaNode) -> str:
         name = self.ctx.get_lambda_name()
         func_idx = self.ctx.register_function(name)
-
-        # Вызов общей логики (используем closure_env из ноды)
         func_code = self._compile_function_base(name, node.params, node.body, node.closure_env)
         self.ctx.funcs_code.append(func_code)
 
-        # Формирование замыкания
         env_ptr = "local.get $new_env_addr\nf64.convert_i32_u" if self.ctx.is_inside_func else "local.get $env"
         return f"f64.const {func_idx}.0\n{env_ptr}\ncall $std_cons"
 
     def visit_symbol(self, node: SymbolNode) -> str:
         info = self.ctx.current_env.resolve(node.name)
+        wb = WatBuilder()
 
-        # 1. Локальная переменная или аргумент (найдено в Env)
         if info and (info.env_level > 0 or info.var_index is not None):
             addr_code = self._emit_var_addr(info)
-            return f"{addr_code}\nf64.load"
+            wb.raw(addr_code)
+            wb.emit(OpCode.LOAD, WasmType.F64)
+            return wb.build()
 
-        # 2. Глобальная переменная (известная)
         if node.name in self.ctx.global_vars or node.name in Environment.PRIMITIVES:
-            return f"global.get ${node.name}"
+            wb.emit_get(f"${node.name}", 'global')
+            return wb.build()
 
-        # 3. Ошибка (Strict Validation)
         raise CompilerError(f"Undefined variable: '{node.name}'")
 
     def visit_setq(self, node: SetqNode) -> str:
         info = self.ctx.current_env.resolve(node.var_name)
         val_code = node.value.accept(self)
+        wb = WatBuilder()
 
-        # Strict Logic: если переменной нет нигде, создаем глобальную (Lisp behavior),
-        # но можно ужесточить. Пока оставим как создание глобальной.
         if not info or (info.env_level == 0 and info.var_index is None):
             if node.var_name not in self.ctx.global_vars:
                 self.ctx.define_global(node.var_name)
-            return f"{val_code}\nglobal.set ${node.var_name}\nglobal.get ${node.var_name}"
+            wb.raw(val_code)
+            wb.emit_set(f"${node.var_name}", 'global')
+            wb.emit_get(f"${node.var_name}", 'global')
+            return wb.build()
 
-        code = f"{val_code}\n"
-        code += "global.set $scratch\n"
-        code += self._emit_var_addr(info) + "\n"
-        code += "global.get $scratch\n"
-        code += "f64.store\n"
-        code += "global.get $scratch"
-        return code
+        wb.raw(val_code)
+        wb.emit_set('$scratch', 'global')
+        wb.raw(self._emit_var_addr(info))
+        wb.emit_get('$scratch', 'global')
+        wb.emit(OpCode.STORE, WasmType.F64)
+        wb.emit_get('$scratch', 'global')
+        return wb.build()
 
-    # --- Helpers & Standard Visitors ---
+    # --- Helpers ---
 
     def _compile_block(self, nodes: List[ASTNode]) -> str:
         if not nodes: return "f64.const 0.0"
         wb = WatBuilder()
         for i, node in enumerate(nodes):
-            wb.add(node.accept(self))
-            if i < len(nodes) - 1: wb.add("drop")
+            wb.raw(node.accept(self))
+            if i < len(nodes) - 1: wb.emit(OpCode.DROP)
         return wb.build()
-
-    def _emit_var_addr(self, info: SymbolInfo) -> str:
-        base_ptr = "local.get $new_env_addr" if self.ctx.is_inside_func else "local.get $env\ni32.trunc_f64_u"
-        code = [base_ptr]
-        hops = self.ctx.current_env.level - info.env_level
-        for _ in range(hops):
-            code.append("f64.load")
-            code.append("i32.trunc_f64_u")
-
-        # Используем логику StackFrame и здесь, но пока просто offset
-        offset = (info.var_index + 1) * 8
-        code.append(f"i32.const {offset}")
-        code.append("i32.add")
-        return "\n".join(code)
-
-    def _indent(self, code: str, spaces: int) -> str:
-        prefix = " " * spaces
-        return "\n".join([prefix + line for line in code.split('\n')])
-
-    def _get_type_definitions(self) -> str:
-        types = ""
-        for i in range(11):
-            params = " ".join(["(param f64)"] * (i + 1))
-            types += f"  (type $type_{i} (func {params} (result f64)))\n"
-        return types
 
     def _get_table_config(self) -> str:
         count = len(self.ctx.table_entries)
@@ -288,27 +300,36 @@ class WasmCompiler(ASTVisitor):
         funcs_list = " ".join(self.ctx.table_entries)
         return f"  (table {count} funcref)\n  (elem (i32.const 0) {funcs_list})\n"
 
-    # --- Остальные визиторы без изменений логики, но используют accept ---
+    def _indent(self, code: str, spaces: int) -> str:
+        prefix = " " * spaces
+        return "\n".join([prefix + line for line in code.split('\n')])
+
+    # --- Standard Visitors (with Builder) ---
 
     def visit_call(self, node: CallNode) -> str:
         if isinstance(node.func, SymbolNode) and node.func.name in Environment.PRIMITIVES:
             return self.visit_prim_call(PrimCallNode(node.func.name, node.args))
 
         func_calc = node.func.accept(self)
-        args_calc = [arg.accept(self) for arg in node.args]
         arity = len(node.args)
 
+        # Регистрируем тип для indirect call
+        type_name = self.ctx.type_registry.get_or_register(arity)
+
         wb = WatBuilder()
-        wb.add(f";; -- Call Indirect (arity {arity}) --")
-        wb.add(func_calc)
-        wb.add("global.set $scratch")
-        wb.add("global.get $scratch")
-        wb.add("call $std_cdr")
-        for arg in args_calc: wb.add(arg)
-        wb.add("global.get $scratch")
-        wb.add("call $std_car")
-        wb.add("i32.trunc_f64_u")
-        wb.add(f"call_indirect (type $type_{arity})")
+        wb.raw(f";; -- Call Indirect (arity {arity}) --")
+        wb.raw(func_calc)
+        wb.emit_set('$scratch', 'global')
+        wb.emit_get('$scratch', 'global')
+        wb.emit_call('$std_cdr')  # Env
+
+        for arg in node.args:
+            wb.raw(arg.accept(self))
+
+        wb.emit_get('$scratch', 'global')
+        wb.emit_call('$std_car')  # Func Index
+        wb.emit(OpCode.TRUNC_U, WasmType.I32)
+        wb.raw(f"call_indirect (type {type_name})")
         return wb.build()
 
     def visit_prim_call(self, node: PrimCallNode) -> str:
@@ -346,12 +367,28 @@ class WasmCompiler(ASTVisitor):
         text_bytes = node.value.encode('utf-8')
         length = len(text_bytes)
         wb = WatBuilder()
-        wb.add("global.get $heap_ptr")
-        wb.add(f"global.get $heap_ptr\ni32.const {length}\ni32.store")
+        wb.emit_get('$heap_ptr', 'global')
+
+        # Store length
+        wb.emit_get('$heap_ptr', 'global')
+        wb.emit_const(length, WasmType.I32)
+        wb.emit(OpCode.STORE, WasmType.I32)
+
+        # Store bytes
         for i, byte in enumerate(text_bytes):
-            wb.add(f"global.get $heap_ptr\ni32.const {4 + i}\ni32.add\ni32.const {byte}\ni32.store8")
-        wb.add(f"global.get $heap_ptr\ni32.const {4 + length}\ni32.add\nglobal.set $heap_ptr")
-        wb.add("f64.convert_i32_u")
+            wb.emit_get('$heap_ptr', 'global')
+            wb.emit_const(4 + i, WasmType.I32)
+            wb.emit(OpCode.ADD, WasmType.I32)
+            wb.emit_const(byte, WasmType.I32)
+            wb.raw("i32.store8")
+
+        # Update heap pointer
+        wb.emit_get('$heap_ptr', 'global')
+        wb.emit_const(4 + length, WasmType.I32)
+        wb.emit(OpCode.ADD, WasmType.I32)
+        wb.emit_set('$heap_ptr', 'global')
+
+        wb.emit(OpCode.CONVERT_U, WasmType.F64)
         return wb.build()
 
     def visit_progn(self, node: PrognNode):
