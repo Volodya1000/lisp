@@ -90,13 +90,21 @@ class WasmRunner:
 
     def run(self, wat_code: str):
         try:
+            # Сохраняем WAT код для отладки
+            with open("debug.wat", "w", encoding="utf-8") as f:
+                f.write(wat_code)
+            print("DEBUG: WAT code saved to debug.wat")
+
             module = wasmtime.Module(self.engine, wat_code)
             instance = self.linker.instantiate(self.store, module)
 
-            # В новой версии компилятора код инициализации может быть разбросан,
-            # но точка входа всегда main
-            main_func = instance.exports(self.store)["main"]
+            # Получаем информацию о таблице для отладки
+            exports = instance.exports(self.store)
+            if "table" in exports:
+                table = exports["table"]
+                print(f"DEBUG: Table size: {table.size(self.store)}")
 
+            main_func = exports["main"]
             result = main_func(self.store)
 
             # Если результат не 0 (princ обычно возвращает 0), выведем его
@@ -107,6 +115,14 @@ class WasmRunner:
 
         except wasmtime.WasmtimeError as e:
             print(f"[RUNTIME ERROR]: {e}")
+
+            # Пытаемся получить больше информации об ошибке
+            if "indirect call type mismatch" in str(e):
+                print("DEBUG: Indirect call type mismatch detected!")
+                print("DEBUG: This usually means:")
+                print("DEBUG: 1. Function signature in table doesn't match expected type")
+                print("DEBUG: 2. Wrong function index in closure")
+                print("DEBUG: 3. Type definition doesn't match function definition")
         except Exception as e:
             print(f"[ERROR]: {e}")
 

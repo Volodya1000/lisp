@@ -5,18 +5,20 @@ from .wasm_types import WasmType
 
 class TypeRegistry:
     def __init__(self):
-        # Хранит arity -> type_name
         self.registered_types: Set[int] = set()
 
     def get_or_register(self, arity: int) -> str:
         self.registered_types.add(arity)
-        return f"$type_{arity}"
+        type_name = f"$type_{arity}"
+        print(f"DEBUG: TypeRegistry: arity {arity} -> {type_name}")
+        return type_name
 
     def generate_definitions(self) -> str:
         lines = []
         for arity in sorted(self.registered_types):
             params = " ".join([f"(param {WasmType.F64})"] * (arity + 1))  # +1 for env
             lines.append(f"  (type $type_{arity} (func {params} (result {WasmType.F64})))")
+            print(f"DEBUG: Generated type definition: $type_{arity} with {arity+1} params")
         return "\n".join(lines)
 
 
@@ -29,9 +31,8 @@ class CompilerContext:
         self.table_entries: List[str] = []
         self.lambda_counter = 0
         self.is_inside_func = False
-
-        # Новый реестр типов
         self.type_registry = TypeRegistry()
+        self.call_depth = 0
 
     def define_global(self, name: str):
         self.global_vars.add(name)

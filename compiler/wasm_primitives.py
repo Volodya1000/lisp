@@ -1,6 +1,4 @@
 from typing import List
-from semantic.ast_nodes import ASTNode
-
 
 class PrimitiveHandler:
     def __init__(self):
@@ -15,15 +13,12 @@ class PrimitiveHandler:
         self.std_mapping = {
             'cons': '$std_cons', 'car': '$std_car', 'cdr': '$std_cdr',
             'equal': '$std_equal', 'length': '$std_length',
-            'str-concat': '$std_str_concat', 'null': '$std_is_nil',
+            'str-concat': '$std_str_concat', 'nil': '$std_is_nil',
             'atom': '$std_is_nil'
         }
 
-    def handle(self, prim_name: str, args: List[ASTNode], compiler_instance) -> str:
-        """
-        Dispatches logic based on primitive name.
-        compiler_instance нужен, чтобы вызвать accept у аргументов (рекурсивная компиляция).
-        """
+    def handle(self, prim_name: str, args: List, compiler_instance) -> str:
+        # Компилируем аргументы
         compiled_args = [arg.accept(compiler_instance) for arg in args]
         args_code = "\n".join(compiled_args)
 
@@ -34,12 +29,12 @@ class PrimitiveHandler:
             return f"{args_code}\n{self.comp_ops[prim_name]}\nf64.convert_i32_s"
 
         if prim_name == 'not':
-            # args[0] уже скомпилирован в compiled_args[0]
             return f"{compiled_args[0]}\nf64.const 0.0\nf64.eq\n(if (result f64) (then f64.const 1.0) (else f64.const 0.0))"
 
         if prim_name == 'read':
             return "call $read_num"
 
+        # ВАЖНО: princ и print должны возвращать значение (0.0), чтобы стек не пустел
         if prim_name == 'princ':
             return f"{compiled_args[0]}\ncall $princ\nf64.const 0.0"
 
@@ -48,8 +43,6 @@ class PrimitiveHandler:
 
         if prim_name == 'list':
             code = "f64.const 0.0"
-            # Важно: идем в обратном порядке по скомпилированным аргументам,
-            # чтобы правильно собрать вложенные cons
             for arg_code in reversed(compiled_args):
                 code = f"{arg_code}\n{code}\ncall $std_cons"
             return code
