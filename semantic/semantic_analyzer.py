@@ -8,7 +8,7 @@ from .error_collector import ErrorCollector
 from .atom_factory import AtomFactory
 from .handlers import (
     SpecialFormHandler, QuoteHandler, LambdaHandler, DefunHandler,
-    SetqHandler, CondHandler, PrognHandler, LogicHandler
+    SetqHandler, CondHandler, PrognHandler, LogicHandler, LetHandler
 )
 
 
@@ -42,7 +42,8 @@ class SemanticAnalyzer(lispVisitor):
             'cond': CondHandler(),
             'progn': PrognHandler(),
             'and': LogicHandler('and'),
-            'or': LogicHandler('or')
+            'or': LogicHandler('or'),
+            'let': LetHandler()
         }
 
     def get_span(self, ctx) -> SourceSpan:

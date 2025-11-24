@@ -1,81 +1,71 @@
-;; == = УТИЛИТЫ == =
+;; === УТИЛИТЫ ===
 
 ;; Проверка вхождения элемента в список
 (defun member (x lst)
   (cond
-    ((nil lst) nil)
+    ((eq lst nil) nil)
     ((= x (car lst)) t)
     (t (member x (cdr lst)))))
 
+
 ;; Получение соседей узла из графа (Assoc List)
-;; Формат графа: ((1 2 3) (2 4) (3 4) (4 5) (5))
-;; Ищет список, начинающийся с node
 (defun get-neighbors (node graph)
   (cond
-    ((nil graph) nil)
+    ((eq graph nil) nil)
     ((= node (car (car graph))) (cdr (car graph)))
     (t (get-neighbors node (cdr graph)))))
 
-;; Реверс списка (для красивого вывода пути)
+
+;; Реверс списка
 (defun reverse-helper (lst acc)
   (cond
-    ((nil lst) acc)
+    ((eq lst nil) acc)
     (t (reverse-helper (cdr lst) (cons (car lst) acc)))))
 
 (defun reverse (lst)
   (reverse-helper lst nil))
 
-;; == = DFS (ПОИСК В ГЛУБИНУ) == =
 
-;; Основная функция поиска
-;; Возвращает список узлов (путь) или nil, если пути нет
-(defun dfs (current target visited graph)
-  (cond
-    ;; 1. Если пришли к цели - возвращаем список из одной цели
-    ((= current target) (list target))
-    ;; 2. Если уже были здесь - тупик (цикл), возвращаем nil
-    ((member current visited) nil)
-    ;; 3. Иначе ищем среди соседей
-    (t
-      ;; Создаем "локальную" переменную path через вызов лямбды
-      (funcall (lambda ()
-                 (let ((path (try-neighbors (get-neighbors current graph) target (cons current visited) graph)))
-                   (if (not (nil path))
-                       (cons current path)
-                       nil)))))))
+;; === DFS ===
 
-;; Перебор соседей. Пытается найти путь через первого соседа.
-;; Если возвращает nil, пробует следующего.
 (defun try-neighbors (neighbors target visited graph)
   (cond
-    ((nil neighbors) nil) ;; Соседи кончились, пути нет
+    ((eq neighbors nil) nil)
     (t
-     ;; Пробуем путь через первого соседа
      (let ((res (dfs (car neighbors) target visited graph)))
-       (if (not (nil res))
+       (if (not (eq res nil))
            res
-           (try-neighbors (cdr neighbors) target visited graph)))))))
+           (try-neighbors (cdr neighbors) target visited graph))))))
 
-;; == = UI == =
+
+(defun dfs (current target visited graph)
+  (cond
+    ((= current target) (list target))
+    ((member current visited) nil)
+    (t
+     (let ((path (try-neighbors (get-neighbors current graph)
+                                 target
+                                 (cons current visited)
+                                 graph)))
+       (if (not (eq path nil))
+           (cons current path)
+           nil)))))
+
+
+;; === UI ===
 
 (defun print-path (p)
   (cond
-    ((nil p) (princ "\n"))
+    ((eq p nil) (princ "No path found or End of path.\n"))
     (t
      (progn
-       (princ (car p))
-       (if (not (nil (cdr p))) (princ " -> "))
+       (print (car p))
+       (if (not (eq (cdr p) nil)) (princ " -> "))
        (print-path (cdr p))))))
+
 
 (defun main ()
   (progn
-    ;; Определение графа:
-    ;; 1 -> 2, 3
-    ;; 2 -> 4
-    ;; 3 -> 4, 5
-    ;; 4 -> 2 (цикл!), 6
-    ;; 5 -> 6
-    ;; 6 -> (нет выхода)
     (setq graph
           (list
            (list 1 2 3)
@@ -86,4 +76,14 @@
            (list 6)))
 
     (princ "Defined Graph Edges:\n")
-    (princ "1 -> [2, 3]\n2 -> [4]\n3 -> [4, 5]\n4 -> [2, 6]\n5 -> [6]()
+    (princ "1 -> [2, 3]\n2 -> [4]\n3 -> [4, 5]\n4 -> [2, 6]\n5 -> [6]\n")
+
+    (princ "\n--- DFS Search from 1 to 6 ---\n")
+    (let ((result (dfs 1 6 nil graph)))
+      (print-path result))
+
+    (princ "\nDone.")
+  ))
+
+(main)
+
