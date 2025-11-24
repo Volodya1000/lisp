@@ -87,6 +87,10 @@ class SemanticAnalyzer(lispVisitor):
         first_ctx = sexprs[0]
         first_node = self.visit(first_ctx)
 
+        if isinstance(first_node, NilNode):
+            rest_nodes = [self.visit(e) for e in sexprs[1:]]
+            return PrimCallNode('nil', rest_nodes)
+
         # 1. Special Forms (Dispatch to Handlers)
         if isinstance(first_node, SymbolNode) and first_node.name in self.handlers:
             handler = self.handlers[first_node.name]

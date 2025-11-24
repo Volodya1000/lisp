@@ -16,7 +16,7 @@
     (t (get-neighbors node (cdr graph)))))
 
 
-;; Реверс списка
+;; Реверс списка (если понадобится, но здесь путь строится правильно)
 (defun reverse-helper (lst acc)
   (cond
     ((eq lst nil) acc)
@@ -54,14 +54,21 @@
 
 ;; === UI ===
 
-(defun print-path (p)
+;; Вспомогательная функция: просто печатает узлы и стрелочки
+(defun print-nodes (p)
   (cond
-    ((eq p nil) (princ "No path found or End of path.\n"))
+    ((eq p nil) (princ "\n")) ;; Конец списка -> просто перенос строки
     (t
      (progn
        (print (car p))
        (if (not (eq (cdr p) nil)) (princ " -> "))
-       (print-path (cdr p))))))
+       (print-nodes (cdr p))))))
+
+;; Основная функция печати: проверяет наличие пути перед печатью
+(defun print-path (p)
+  (cond
+    ((eq p nil) (princ "No path found.\n")) ;; Если пришел nil сразу -> пути нет
+    (t (print-nodes p))))                   ;; Иначе печатаем узлы
 
 
 (defun main ()
@@ -79,6 +86,7 @@
     (princ "1 -> [2, 3]\n2 -> [4]\n3 -> [4, 5]\n4 -> [2, 6]\n5 -> [6]\n")
 
     (princ "\n--- DFS Search from 1 to 6 ---\n")
+
     (let ((result (dfs 1 6 nil graph)))
       (print-path result))
 
@@ -86,4 +94,3 @@
   ))
 
 (main)
-

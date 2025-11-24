@@ -11,7 +11,7 @@ class WasmStdLib:
 
     @staticmethod
     def get_memory_config() -> str:
-        return '  (memory (export "memory") 1)\n'
+        return '  (memory (export "memory") 100)\n'
 
     @staticmethod
     def get_globals(global_vars: Set[str]) -> str:

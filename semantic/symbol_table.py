@@ -22,7 +22,7 @@ class Environment:
         'print', 'list', '=',
         '<', '>', '<=', '>=', 'not',
         'length', 'str-concat',
-        'princ','read'
+        'princ','read','nil'
     }
 
     SPECIAL_FORMS = {
