@@ -6,7 +6,7 @@
 
 ;; Map: применяет функцию F к каждому элементу списка
 (defun map (f lst)
-  (if (eq lst nil)  ;; <-- ИСПРАВЛЕНО
+  (if (eq lst nil)
       nil
       (cons (funcall f (car lst))
             (map f (cdr lst)))))
@@ -14,7 +14,7 @@
 ;; Filter: возвращает элементы, удовлетворяющие PRED
 (defun filter (pred lst)
   (cond
-    ((eq lst nil) nil)  ;; <-- ИСПРАВЛЕНО
+    ((eq lst nil) nil)
     ((funcall pred (car lst))
      (cons (car lst)
            (filter pred (cdr lst))))
@@ -22,13 +22,14 @@
 
 ;; Печать списка
 (defun print-list (lst)
-  (if (eq lst nil)  ;; <-- ИСПРАВЛЕНО (здесь падало)
-      (princ "\n")
-      (progn
-        (print (car lst))
-        (princ " ")
-        (print-list (cdr lst)))))
-
+  (cond
+    ((eq lst nil) (princ "\n"))      ;; Если список пуст - просто перевод строки
+    (t (progn
+         (print (car lst))           ;; Печатаем число (теперь без \n благодаря Python-фиксу)
+         (if (eq (cdr lst) nil)      ;; Если это последний элемент...
+             nil                     ;; ... ничего не делаем
+             (princ " "))            ;; ... иначе печатаем пробел-разделитель
+         (print-list (cdr lst))))))  ;; Рекурсия
 ;; --- Основная программа ---
 (defun start ()
   (progn

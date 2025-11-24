@@ -26,15 +26,14 @@ class WasmRunner:
 
     def _setup_imports(self):
         # 1. Функция вывода числа (print)
-        # ИСПРАВЛЕНО: Убран аргумент 'caller', так как access_caller=False по умолчанию
+        # ИЗМЕНЕНИЕ: Убран принудительный перевод строки (+ '\n')
+        # Теперь (print 1) (print 2) выведет "12", а (print 1) (princ " ") (print 2) выведет "1 2"
         def print_number_impl(val):
-            if val.is_integer():
-                print(int(val))
-            else:
-                print(val)
+            text = str(int(val)) if val.is_integer() else str(val)
+            sys.stdout.write(text)
+            sys.stdout.flush()
 
         # 2. Функция вывода строки (princ)
-        # Здесь нужен caller для доступа к памяти, поэтому access_caller=True остается
         def princ_impl(caller, ptr):
             mem = caller.get("memory")
             if mem is None: return
@@ -49,31 +48,33 @@ class WasmRunner:
             offset = int(ptr)
             if offset == 0: return
 
+            # Читаем длину и байты строки
             length = struct.unpack('<I', raw_memory[offset:offset + 4])[0]
             str_bytes = raw_memory[offset + 4: offset + 4 + length]
+
             text = str_bytes.decode('utf-8', errors='replace')
-            print(text, end='', flush=True)
+            sys.stdout.write(text)
+            sys.stdout.flush()
 
         # 3. Функция ВВОДА (read)
-        # ИСПРАВЛЕНО: Убран аргумент 'caller', он здесь не нужен
         def read_num_impl():
             try:
-                text = input(" > ")
-                return float(text)
+                sys.stdout.write(" > ")
+                sys.stdout.flush()
+                text = sys.stdin.readline()
+                return float(text.strip())
             except ValueError:
-                print("[Runtime] Ошибка: введено не число, использую 0.0")
+                sys.stderr.write("[Runtime] Error: invalid number, defaulting to 0.0\n")
                 return 0.0
 
         # Регистрируем функции
 
-        # print_number: принимает f64, ничего не возвращает
         self.linker.define_func(
             "env", "print_number",
             wasmtime.FuncType([wasmtime.ValType.f64()], []),
             print_number_impl
         )
 
-        # princ: принимает f64 (ptr), нужен доступ к памяти (access_caller=True)
         self.linker.define_func(
             "env", "princ",
             wasmtime.FuncType([wasmtime.ValType.f64()], []),
@@ -81,7 +82,6 @@ class WasmRunner:
             access_caller=True
         )
 
-        # read_num: 0 аргументов, возвращает f64
         self.linker.define_func(
             "env", "read_num",
             wasmtime.FuncType([], [wasmtime.ValType.f64()]),
@@ -90,41 +90,29 @@ class WasmRunner:
 
     def run(self, wat_code: str):
         try:
-            # Сохраняем WAT код для отладки
+            # Отладка: сохраняем WAT файл
             with open("debug.wat", "w", encoding="utf-8") as f:
                 f.write(wat_code)
-            print("DEBUG: WAT code saved to debug.wat")
 
             module = wasmtime.Module(self.engine, wat_code)
             instance = self.linker.instantiate(self.store, module)
 
-            # Получаем информацию о таблице для отладки
             exports = instance.exports(self.store)
-            if "table" in exports:
-                table = exports["table"]
-                print(f"DEBUG: Table size: {table.size(self.store)}")
-
             main_func = exports["main"]
+
+            # Запуск main
             result = main_func(self.store)
 
-            # Если результат не 0 (princ обычно возвращает 0), выведем его
+            # Вывод результата выполнения main (если нужно)
             if result != 0.0:
                 print(f"\n[Finished] Result: {result}")
             else:
                 print("\n[Finished]")
 
         except wasmtime.WasmtimeError as e:
-            print(f"[RUNTIME ERROR]: {e}")
-
-            # Пытаемся получить больше информации об ошибке
-            if "indirect call type mismatch" in str(e):
-                print("DEBUG: Indirect call type mismatch detected!")
-                print("DEBUG: This usually means:")
-                print("DEBUG: 1. Function signature in table doesn't match expected type")
-                print("DEBUG: 2. Wrong function index in closure")
-                print("DEBUG: 3. Type definition doesn't match function definition")
+            sys.stderr.write(f"[RUNTIME ERROR]: {e}\n")
         except Exception as e:
-            print(f"[ERROR]: {e}")
+            sys.stderr.write(f"[ERROR]: {e}\n")
 
 
 def main():

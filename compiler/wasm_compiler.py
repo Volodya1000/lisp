@@ -458,7 +458,9 @@ class WasmCompiler(ASTVisitor):
         return "f64.const 0.0"
 
     def visit_string(self, node: StringNode) -> str:
-        text_bytes = node.value.encode('utf-8')
+        processed_value = node.value.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+
+        text_bytes = processed_value.encode('utf-8')
         length = len(text_bytes)
         wb = WatBuilder()
         wb.emit_get('$heap_ptr', 'global')
