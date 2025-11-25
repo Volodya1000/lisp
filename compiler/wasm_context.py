@@ -1,6 +1,9 @@
 from typing import List, Set, Dict
 from semantic.symbol_table import Environment
 from .wasm_types import WasmType
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TypeRegistry:
@@ -10,15 +13,19 @@ class TypeRegistry:
     def get_or_register(self, arity: int) -> str:
         self.registered_types.add(arity)
         type_name = f"$type_{arity}"
-        print(f"DEBUG: TypeRegistry: arity {arity} -> {type_name}")
+        logger.debug(f"TypeRegistry: arity {arity} -> {type_name}")
         return type_name
 
     def generate_definitions(self) -> str:
         lines = []
         for arity in sorted(self.registered_types):
             params = " ".join([f"(param {WasmType.F64})"] * (arity + 1))  # +1 for env
-            lines.append(f"  (type $type_{arity} (func {params} (result {WasmType.F64})))")
-            print(f"DEBUG: Generated type definition: $type_{arity} with {arity+1} params")
+            lines.append(
+                f"  (type $type_{arity} (func {params} (result {WasmType.F64})))"
+            )
+            logger.debug(
+                f"Generated type definition: $type_{arity} with {arity + 1} params"
+            )
         return "\n".join(lines)
 
 

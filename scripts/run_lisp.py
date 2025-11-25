@@ -1,3 +1,4 @@
+import logging
 import sys
 import os
 import argparse
@@ -15,6 +16,11 @@ from gen.lispParser import lispParser
 from semantic.semantic_analyzer import SemanticAnalyzer
 from compiler.wasm_compiler import WasmCompiler
 
+logging.basicConfig(level=logging.ERROR)
+logging.getLogger().setLevel(logging.ERROR)
+logging.getLogger("compiler").setLevel(logging.ERROR)
+logging.getLogger("compiler.wasm_compiler").setLevel(logging.INFO)
+logging.getLogger("compiler.wasm_context").setLevel(logging.INFO)
 
 class WasmRunner:
     def __init__(self):

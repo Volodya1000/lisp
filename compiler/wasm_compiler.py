@@ -33,14 +33,14 @@ class WasmCompiler(ASTVisitor):
         self._init_primitives()
         self.ctx = CompilerContext(self.global_env)
         self.prim_handler = PrimitiveHandler()
-        logger.info("Compiler initialized.")
+        logger.debug("Compiler initialized.")
 
     def _init_primitives(self):
         for name in Environment.PRIMITIVES:
             self.global_env.define(name, is_function=True)
 
     def compile(self, nodes: List[ASTNode]) -> str:
-        logger.info("Starting compilation...")
+        logger.debug("Starting compilation...")
         # СБРОС контекста перед компиляцией
         self.ctx.type_registry.registered_types.clear()
 
@@ -63,15 +63,15 @@ class WasmCompiler(ASTVisitor):
         wb.raw(WasmStdLib.get_memory_config())
 
         # --- DEBUG LOGGING: TYPE REGISTRY ---
-        logger.info("=== Generating Type Definitions ===")
+        logger.debug("=== Generating Type Definitions ===")
         type_defs = self.ctx.type_registry.generate_definitions()
         # Здесь можно вывести сами типы, если у registry есть метод для отображения
         wb.raw(type_defs)
 
         # --- DEBUG LOGGING: TABLE ENTRIES ---
-        logger.info("=== Function Table Layout ===")
+        logger.debug("=== Function Table Layout ===")
         for idx, name in enumerate(self.ctx.table_entries):
-            logger.info(f"  Table Index {idx}: {name}")
+            logger.debug(f"  Table Index {idx}: {name}")
 
         wb.raw(self._get_table_config())
         wb.raw(WasmStdLib.get_globals(self.ctx.global_vars))
@@ -84,7 +84,7 @@ class WasmCompiler(ASTVisitor):
         wb.raw(')')
 
         result = wb.build()
-        logger.info("Compilation finished successfully.")
+        logger.debug("Compilation finished successfully.")
         return result
 
     def _generate_main_func(self, nodes: List[ASTNode], main_body: str) -> str:
@@ -135,7 +135,7 @@ class WasmCompiler(ASTVisitor):
         arity = len(params)
         type_name = self.ctx.type_registry.get_or_register(arity)
 
-        logger.info(f"FUNC DEF: '{name}' | Arity: {arity} | Assigned Type: {type_name}")
+        logger.debug(f"FUNC DEF: '{name}' | Arity: {arity} | Assigned Type: {type_name}")
 
         frame_size = FramePolicy.calculate_size(env.current_var_index + 10)
         prologue = self._generate_prologue(params, frame_size)
@@ -395,7 +395,7 @@ class WasmCompiler(ASTVisitor):
             # WASM выбросит indirect call type mismatch.
             type_name = self.ctx.type_registry.get_or_register(arity)
 
-            logger.info(
+            logger.debug(
                 f"CALL SITE: {call_type} to '{call_target_name}' | Args (Arity): {arity} | Expects Type: {type_name}")
 
             wb.raw(f";; -- Call/Funcall (arity {arity}) --")
