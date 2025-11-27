@@ -44,11 +44,11 @@ class TestComplexAlgorithms(WasmCompilerTestCase):
                                (perms (remove x p-lst)))) 
                        p-lst)))
     
-        (defun length (len-lst)
-            (if (eq len-lst nil) 0 (+ 1 (length (cdr len-lst)))))
+        (defun len (len-lst)
+            (if (eq len-lst nil) 0 (+ 1 (len (cdr len-lst)))))
     
          (defun main ()
-        (length (perms (range 1 3))))
+        (len (perms (range 1 3))))
 
     (main)
         """
