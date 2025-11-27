@@ -1,4 +1,4 @@
-from typing import List, Set, Dict
+from typing import List, Set, Any
 from semantic.symbol_table import Environment
 from .wasm_types import WasmType
 import logging
@@ -12,9 +12,7 @@ class TypeRegistry:
 
     def get_or_register(self, arity: int) -> str:
         self.registered_types.add(arity)
-        type_name = f"$type_{arity}"
-        logger.debug(f"TypeRegistry: arity {arity} -> {type_name}")
-        return type_name
+        return f"$type_{arity}"
 
     def generate_definitions(self) -> str:
         lines = []
@@ -22,9 +20,6 @@ class TypeRegistry:
             params = " ".join([f"(param {WasmType.F64})"] * (arity + 1))  # +1 for env
             lines.append(
                 f"  (type $type_{arity} (func {params} (result {WasmType.F64})))"
-            )
-            logger.debug(
-                f"Generated type definition: $type_{arity} with {arity + 1} params"
             )
         return "\n".join(lines)
 
@@ -40,6 +35,9 @@ class CompilerContext:
         self.is_inside_func = False
         self.type_registry = TypeRegistry()
         self.call_depth = 0
+
+        # Используем Any, чтобы избежать циклического импорта BaseHandler
+        self.handlers: Any = None
 
     def define_global(self, name: str):
         self.global_vars.add(name)
@@ -61,4 +59,3 @@ class CompilerContext:
     def exit_function(self, prev_env: Environment, prev_state: bool):
         self.current_env = prev_env
         self.is_inside_func = prev_state
-
