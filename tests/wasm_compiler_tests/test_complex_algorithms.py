@@ -47,12 +47,10 @@ class TestComplexAlgorithms(WasmCompilerTestCase):
         (defun length (len-lst)
             (if (eq len-lst nil) 0 (+ 1 (length (cdr len-lst)))))
     
-        (defun main ()
-            ;; Burn some memory to ensure cons cells aren't allocated at 0
-            (setq burn-heap "OFFSET_MEMORY_ALLOCATION") 
-            (length (perms (range 1 3))))
-    
-        (main)
+         (defun main ()
+        (length (perms (range 1 3))))
+
+    (main)
         """
         self.assert_evaluates(code, 6.0)
 

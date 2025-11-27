@@ -93,6 +93,13 @@ class WasmCompiler(ASTVisitor):
         wb.raw('    (local $env f64)')
         wb.raw(self._get_closure_locals_defs())
 
+        # === FIX START: Сдвигаем Heap Pointer ===
+        # Резервируем первые 8 байт памяти.
+        # Теперь адрес 0 — это всегда nil, а реальные объекты начнутся с адреса 8.
+        wb.emit_const('8', WasmType.I32)
+        wb.emit_set('$heap_ptr', 'global')
+        # === FIX END ===
+
         wb.emit_const('0.0')
         wb.emit_set('$env')
 
@@ -112,7 +119,6 @@ class WasmCompiler(ASTVisitor):
         wb.raw(self._indent(main_body, 4))
         wb.raw('  )')
         return wb.build()
-
     def _scan_definitions(self, nodes: List[ASTNode]):
         for node in nodes:
             if isinstance(node, DefunNode):
