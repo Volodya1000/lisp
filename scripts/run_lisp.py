@@ -153,8 +153,18 @@ def main():
     try:
         analyzer = SemanticAnalyzer()
         ast = analyzer.visit(tree)
+
+        if analyzer.collector.has_errors():  # Или if len(analyzer.collector.errors) > 0:
+            print("Semantic Errors found:")
+            # Выводим ошибки (предполагаем, что у коллектора есть метод print_errors
+            # или итерируемся по списку errors)
+            for err in analyzer.collector.errors:
+                print(f"  - {err}")
+            sys.exit(1)
     except Exception as e:
-        print(f"Semantic Error: {e}")
+        print(f"Semantic Logic Panic: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
     # Compilation

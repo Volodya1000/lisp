@@ -42,6 +42,12 @@ def main():
         analyzer = SemanticAnalyzer()
         ast = analyzer.visit(tree)
 
+        if analyzer.collector.has_errors():
+            print("Semantic Errors found:")
+            for err in analyzer.collector.errors:
+                print(f"  - {err}")
+            sys.exit(1)
+
     except Exception as e:
         print(f"Error during analysis: {e}", file=sys.stderr)
         sys.exit(1)
