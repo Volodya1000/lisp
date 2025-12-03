@@ -3,6 +3,7 @@ from gen.lispLexer import lispLexer
 from gen.lispParser import lispParser
 from semantic.semantic_analyzer import SemanticAnalyzer
 
+
 class BaseSemanticTest:
     def setup_method(self):
         self.analyzer = SemanticAnalyzer()
@@ -13,11 +14,7 @@ class BaseSemanticTest:
         tokens = CommonTokenStream(lexer)
         parser = lispParser(tokens)
 
-        # Парсинг
         tree = parser.program()
-
         nodes = self.analyzer.visit(tree)
 
         return nodes, self.analyzer
-
-
