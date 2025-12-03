@@ -41,12 +41,11 @@ class TestDataStructures(WasmCompilerTestCase):
         """
         self.assert_evaluates(code_concat, 5.0)
 
-        # Вывод (Side-effect через буфер)
         code_princ = """
         (princ "Line 1")
         (princ "Line 2")
         """
-        self.assert_evaluates(code_princ, 0.0)  # princ returns nil/0
+        self.assert_evaluates(code_princ, 0.0)  # princ возвращает 0
         self.assertEqual(self.output_buffer, ["Line 1", "Line 2"])
 
 

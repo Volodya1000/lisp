@@ -52,18 +52,9 @@ class WasmCompilerTestCase(unittest.TestCase):
 
         offset = int(ptr)
 
-        if hasattr(memory, "data_ptr"):
-            data_ptr = memory.data_ptr(caller)
-            data_len = memory.data_len(caller)
-            data = ctypes.string_at(data_ptr, data_len)
-        elif hasattr(memory, "data"):
-            data = memory.data(caller)
-        else:
-            try:
-                mem_obj = memory.memory(caller) if callable(memory.memory) else memory.memory
-                data = mem_obj.data(caller)
-            except:
-                raise RuntimeError(f"Cannot access memory data: {memory}")
+        data_ptr = memory.data_ptr(caller)
+        data_len = memory.data_len(caller)
+        data = ctypes.string_at(data_ptr, data_len)
 
         # Формат строки в куче: [Length: 4 bytes] + [Bytes...]
         try:
