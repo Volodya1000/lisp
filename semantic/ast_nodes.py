@@ -1,14 +1,12 @@
 from dataclasses import dataclass, field
 from typing import List, Any, TYPE_CHECKING
 
-# Импортируем базовые классы. Это безопасный односторонний импорт.
 from .visitor import ASTNode, ASTVisitor
 
 if TYPE_CHECKING:
     from semantic.symbol_table import Environment
 
 
-# Простые литеральные узлы
 @dataclass(frozen=True)
 class NilNode(ASTNode):
     def accept(self, visitor: ASTVisitor) -> Any:

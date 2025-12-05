@@ -6,7 +6,7 @@ from ..symbol_table import Environment
 
 class LetHandler(SpecialFormHandler):
     def handle(self, analyzer, raw_args, ctx) -> ASTNode:
-        # 1. Проверка: должен быть хотя бы список биндингов
+        # должен быть хотя бы список биндингов
         if len(raw_args) < 1:
             analyzer.collector.add_error(ArityError(
                 message="let requires at least a bindings list",
@@ -23,7 +23,7 @@ class LetHandler(SpecialFormHandler):
         params = []
         args_values = []
 
-        # 2. Проверка типа первого аргумента (список или nil)
+        # Проверка типа первого аргумента (список или nil)
         is_list = bindings_ctx.list_() is not None
         is_nil = bindings_ctx.atom() and bindings_ctx.atom().getText() == "nil"
 
@@ -54,7 +54,7 @@ class LetHandler(SpecialFormHandler):
 
                 pair_elements = pair_ctx.list_().sexpr()
 
-                # Структура должна быть ровно (var val)
+                # Структура должна быть (var val)
                 if len(pair_elements) != 2:
                     analyzer.collector.add_error(InvalidSyntaxError(
                         message=f"Binding #{i + 1} has invalid structure",
@@ -74,13 +74,13 @@ class LetHandler(SpecialFormHandler):
                     ))
                     continue
 
-                # Элемент 1: Значение (компилируем в ТЕКУЩЕМ окружении)
+                # Элемент 1: Значение (компилируем в текущем окружении)
                 val_node = analyzer.visit(pair_elements[1])
 
                 params.append(var_node.name)
                 args_values.append(val_node)
 
-        # 3. Создание Scope и тела
+        #  Создание Scope и тела
         let_env = Environment(parent=analyzer.current_env)
         previous_env = analyzer.current_env
         analyzer.current_env = let_env
@@ -100,6 +100,6 @@ class LetHandler(SpecialFormHandler):
         finally:
             analyzer.current_env = previous_env
 
-        # 4. AST Transformation: Let -> IIFE (Immediately Invoked Function Expression)
+        # переписываем let в немедленно вызываемую функцию
         lambda_node = LambdaNode(params, body, let_env)
         return CallNode(lambda_node, args_values)

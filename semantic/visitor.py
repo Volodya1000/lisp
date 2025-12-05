@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, TYPE_CHECKING
 
-# Используем TYPE_CHECKING. Во время выполнения этот блок игнорируется,
-# поэтому циклического импорта не происходит.
 if TYPE_CHECKING:
     from .ast_nodes import (
         SymbolNode, NumberNode, StringNode, NilNode, TrueNode,
@@ -12,11 +10,6 @@ if TYPE_CHECKING:
 
 
 class ASTVisitor(ABC):
-    """Абстрактный интерфейс для компиляторов и других обработчиков"""
-
-    # Используем строковые аннотации ('SymbolNode'), чтобы Python не искал класс
-    # во время определения методов (когда класс еще не импортирован).
-
     @abstractmethod
     def visit_symbol(self, node: 'SymbolNode') -> Any: pass
 
@@ -64,11 +57,6 @@ class ASTVisitor(ABC):
 
 
 class ASTNode(ABC):
-    """Базовый класс для всех AST узлов"""
-
-    # ASTNode находится здесь, так как он тесно связан с Visitor
-    # и является абстракцией, а не реализацией.
-
     @abstractmethod
     def accept(self, visitor: ASTVisitor) -> Any:
         pass

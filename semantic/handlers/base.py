@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 
 class SpecialFormHandler(ABC):
-    """Базовый класс для обработки специальных форм."""
 
     @abstractmethod
     def handle(self, analyzer: 'SemanticAnalyzer', args: List['lispParser.SexprContext'], ctx) -> ASTNode:
@@ -18,7 +17,7 @@ class SpecialFormHandler(ABC):
 
     @staticmethod
     def _extract_params(analyzer: 'SemanticAnalyzer', params_ast: ASTNode, ctx_for_error) -> List[str]:
-        """Утилита для извлечения параметров функций/лямбд."""
+        """извлечение параметров функций/лямбд."""
 
         if isinstance(params_ast, ListNode):
             elements = params_ast.elements

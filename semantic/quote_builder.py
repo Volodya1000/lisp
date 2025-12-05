@@ -4,10 +4,6 @@ from .ast_nodes import *
 
 
 class QuoteBuilder:
-    """
-    Отвечает за построение AST внутри формы (quote ...).
-    Здесь не происходит вычисления или проверок окружения.
-    """
 
     @classmethod
     def build(cls, ctx: lispParser.SexprContext) -> ASTNode:

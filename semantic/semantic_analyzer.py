@@ -47,7 +47,7 @@ class SemanticAnalyzer(lispVisitor):
         }
 
     def get_span(self, ctx) -> SourceSpan:
-        """Public helper для извлечения координат (используется хендлерами)."""
+        """ helper для извлечения координат (используется хендлерами)."""
         if hasattr(ctx, 'start') and ctx.start:
             start = ctx.start
             stop = ctx.stop if ctx.stop else start
@@ -60,8 +60,6 @@ class SemanticAnalyzer(lispVisitor):
                 stop_index=stop.stop
             )
         return SourceSpan(0, 0, 0, 0)
-
-    # --- Visits ---
 
     def visitProgram(self, ctx: lispParser.ProgramContext) -> List[ASTNode]:
         return [self.visit(form) for form in ctx.form()]
@@ -83,7 +81,7 @@ class SemanticAnalyzer(lispVisitor):
         if not sexprs:
             return NilNode()
 
-        # Анализируем первый элемент (голова списка)
+        # голова списка
         first_ctx = sexprs[0]
         first_node = self.visit(first_ctx)
 
@@ -91,18 +89,18 @@ class SemanticAnalyzer(lispVisitor):
             rest_nodes = [self.visit(e) for e in sexprs[1:]]
             return PrimCallNode('nil', rest_nodes)
 
-        # 1. Special Forms (Dispatch to Handlers)
+        # Обработка специальных форм (передаём управление соответствующим обработчикам)
         if isinstance(first_node, SymbolNode) and first_node.name in self.handlers:
             handler = self.handlers[first_node.name]
             with self.collector.context(f"Special Form '{first_node.name}'"):
                 return handler.handle(self, sexprs[1:], ctx)
 
-        # 2. Function Calls (Arguments Evaluation)
+        # Вызов функций (вычисление аргументов)
         rest_nodes = [self.visit(e) for e in sexprs[1:]]
 
-        # 3. Primitive Calls
+        # Вызовы примитивов
         if isinstance(first_node, SymbolNode) and first_node.name in Environment.PRIMITIVES:
             return PrimCallNode(first_node.name, rest_nodes)
 
-        # 4. User Function Calls / Lambda Calls
+        # Вызовы пользовательских функций и лямбд
         return CallNode(first_node, rest_nodes)

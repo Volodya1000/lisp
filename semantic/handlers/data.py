@@ -49,7 +49,7 @@ class SetqHandler(SpecialFormHandler):
 
         value_node = analyzer.visit(raw_args[1])
 
-        # Logic: Define if not exists
+        # проверка вдруг уже существует
         existing = analyzer.current_env.resolve(var_name)
         if not existing:
             analyzer.current_env.define(var_name)

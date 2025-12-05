@@ -8,7 +8,6 @@ class ErrorCollector:
         self._context_stack: List[str] = []
 
     def add_error(self, error: SemanticError):
-        """Регистрирует ошибку и обогащает её текущим контекстом."""
         # Копируем текущий стек контекста в ошибку
         error.context_stack = list(self._context_stack)
         self._errors.append(error)

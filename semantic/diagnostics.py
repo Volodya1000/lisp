@@ -22,11 +22,9 @@ class SourceSpan:
 
 @dataclass(kw_only=True)
 class SemanticError:
-    """Базовый класс семантической ошибки."""
     message: str
     span: SourceSpan
     severity: Severity = Severity.ERROR
-    # Стек контекста
     context_stack: List[str] = field(default_factory=list)
 
     @property

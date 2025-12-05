@@ -34,7 +34,7 @@ class Environment:
         self.parent = parent
         self.symbols: Dict[str, SymbolInfo] = {}
         self.level = parent.level + 1 if parent else 0
-        # Счётчик локальных переменных в текущем скоупе (для аллокации в Heap)
+        # Счётчик локальных переменных в текущей области видимости (для аллокации в Heap)
         self.current_var_index = 0
 
     def define(self, name: str, is_function: bool = False, value: Any = None) -> SymbolInfo:
