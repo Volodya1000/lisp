@@ -10,6 +10,7 @@
     *   [Управление памятью и представление данных](#управление-памятью-и-представление-данных)
     *   [Лямбда-выражения и замыкания](#лямбда-выражения-и-замыкания)
     *   [Компоненты системы](#компоненты-системы)
+4. [Unit тестирование](#unit-тестирование)
 
 ---
 
@@ -393,7 +394,62 @@ with analyzer.collector.context(f"Function '{func_name}'"):
 Если внутри тела встретится ошибочный `cond`, сообщение об ошибке будет содержать стек:
 > **Error:** TypeMismatchError inside `Function 'calculate'` -> `Cond Clause #2` -> `Let Binding #1`
 
+### Демонстрация обнаружения ошибок
 
+Ниже приведены результаты работы семантического анализатора на тестовых файлах с ошибками. Для каждого примера указана ссылка на исходный код и скриншот с выводом компилятора.
+
+**1. Неверное количество аргументов (Arity Error: Setq)**
+Попытка вызова `setq` с одним аргументом вместо двух.
+> [Исходный код: setq.lisp](examples/examples_with_semantic_errors/setq.lisp)
+
+![Setq Error](screenshots/examples_weth_semantic_errors/setq.PNG)
+
+---
+
+**2. Неверное количество аргументов (Arity Error: Quote)**
+`quote` принимает ровно одно выражение, здесь передано два.
+> [Исходный код: quote.lisp](examples/examples_with_semantic_errors/quote.lisp)
+
+![Quote Error](screenshots/examples_weth_semantic_errors/quote.PNG)
+
+---
+
+**3. Неполное определение функции (Arity Error: Defun)**
+Отсутствует тело функции (переданы только имя и параметры).
+> [Исходный код: defun.lisp](examples/examples_with_semantic_errors/defun.lisp)
+
+![Defun Error](screenshots/examples_weth_semantic_errors/defun.PNG)
+
+---
+
+**4. Несоответствие типов (Type Mismatch: Setq)**
+Попытка присвоить значение числу, а не символу (переменной).
+> [Исходный код: type_mismatch.lisp](examples/examples_with_semantic_errors/type_mismatch.lisp)
+
+![Type Mismatch Error](screenshots/examples_weth_semantic_errors/type_mismatch.PNG)
+
+---
+
+**5. Неверное имя функции (Type Mismatch: Defun)**
+Имя функции задано строкой `"add-two"`, хотя ожидается символ (Symbol).
+> [Исходный код: wrong_func_name.lisp](examples/examples_with_semantic_errors/wrong_func_name.lisp)
+
+![Wrong Func Name Error](screenshots/examples_weth_semantic_errors/wrong_func_name.PNG)
+
+---
+
+**6. Структурная ошибка (Invalid Syntax: Let)**
+Нарушение структуры списка связываний внутри `let` (некорректное количество элементов в паре).
+> [Исходный код: let.lisp](examples/examples_with_semantic_errors/let.lisp)
+
+![Let Error](screenshots/examples_weth_semantic_errors/let.PNG)
+
+---
+
+**7. Ошибка в лямбда-выражении**
+Демонстрация ошибки при некорректном объявлении анонимной функции.
+
+![Lambda Error](screenshots/examples_weth_semantic_errors/wrong_lambda.PNG)
 ---
 
 # Архитектура и устройство компилятора
@@ -459,3 +515,12 @@ with analyzer.collector.context(f"Function '{func_name}'"):
 
 ### WatBuilder
 Инструмент для генерации S-выражений. Предоставляет удобный API для эмиссии инструкций и управления вложенностью блоков (`if`, `block`, `loop`) через контекстные менеджеры Python (`with wb.if_block(): ...`).
+
+
+# Unit тестирование
+
+Для обеспечения надежности компилятора и семантического анализатора реализован набор unit тестов с использованием фреймворка `pytest`. 
+
+И тесты семантического анализа и тесты компилятора имеют базовый класс, содержащий основные функции тестирвоания, остальные классы в основном нужны для передачи тестового кода и выполнения asser команд.
+
+![Passed Tests](screenshots/tests_passed.PNG)

@@ -7,7 +7,6 @@ import wasmtime
 import struct
 import ctypes
 
-# Указываем путь к корню проекта
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 
@@ -31,15 +30,11 @@ class WasmRunner:
         self._setup_imports()
 
     def _setup_imports(self):
-        # 1. Функция вывода числа (print)
-        # ИЗМЕНЕНИЕ: Убран принудительный перевод строки (+ '\n')
-        # Теперь (print 1) (print 2) выведет "12", а (print 1) (princ " ") (print 2) выведет "1 2"
         def print_number_impl(val):
             text = str(int(val)) if val.is_integer() else str(val)
             sys.stdout.write(text)
             sys.stdout.flush()
 
-        # 2. Функция вывода строки (princ)
         def princ_impl(caller, ptr):
             mem = caller.get("memory")
             if mem is None: return
@@ -62,7 +57,7 @@ class WasmRunner:
             sys.stdout.write(text)
             sys.stdout.flush()
 
-        # 3. Функция ВВОДА (read)
+        # 3. Функция ввода числа (read)
         def read_num_impl():
             try:
                 sys.stdout.write(" > ")
@@ -73,7 +68,6 @@ class WasmRunner:
                 sys.stderr.write("[Runtime] Error: invalid number, defaulting to 0.0\n")
                 return 0.0
 
-        # Регистрируем функции
 
         self.linker.define_func(
             "env", "print_number",
@@ -96,7 +90,6 @@ class WasmRunner:
 
     def run(self, wat_code: str):
         try:
-            # Отладка: сохраняем WAT файл
             with open("debug.wat", "w", encoding="utf-8") as f:
                 f.write(wat_code)
 
@@ -106,10 +99,8 @@ class WasmRunner:
             exports = instance.exports(self.store)
             main_func = exports["main"]
 
-            # Запуск main
             result = main_func(self.store)
 
-            # Вывод результата выполнения main (если нужно)
             if result != 0.0:
                 print(f"\n[Finished] Result: {result}")
             else:
@@ -135,7 +126,6 @@ def main():
 
     print(f"--- Executing {args.file} ---")
 
-    # Parsing
     try:
         input_stream = antlr4.InputStream(code)
         lexer = lispLexer(input_stream)
@@ -149,15 +139,12 @@ def main():
         print(f"Parsing Error: {e}")
         sys.exit(1)
 
-    # Semantic Analysis
     try:
         analyzer = SemanticAnalyzer()
         ast = analyzer.visit(tree)
 
-        if analyzer.collector.has_errors():  # Или if len(analyzer.collector.errors) > 0:
+        if analyzer.collector.has_errors():
             print("Semantic Errors found:")
-            # Выводим ошибки (предполагаем, что у коллектора есть метод print_errors
-            # или итерируемся по списку errors)
             for err in analyzer.collector.errors:
                 print(f"  - {err}")
             sys.exit(1)
@@ -167,7 +154,6 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Compilation
     try:
         compiler = WasmCompiler()
         wat = compiler.compile(ast)
@@ -175,7 +161,6 @@ def main():
         print(f"Compilation Error: {e}")
         sys.exit(1)
 
-    # Execution
     runner = WasmRunner()
     runner.run(wat)
 

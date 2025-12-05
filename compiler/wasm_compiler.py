@@ -15,7 +15,6 @@ from .wat_builder import WatBuilder
 from semantic.ast_nodes import *
 from semantic.symbol_table import Environment  # <--- БЫЛ ПРОПУЩЕН ЭТОТ ИМПОРТ
 
-# Настройка логирования
 logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(message)s', stream=sys.stderr)
 logger = logging.getLogger("WasmCompiler")
 
