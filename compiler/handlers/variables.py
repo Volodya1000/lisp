@@ -12,7 +12,7 @@ class VariableHandler(BaseHandler):
         """Обработка получения значения переменной (SymbolNode)."""
         wb = self.get_builder()
 
-        # 1. Проверяем локальные/замыкаемые переменные
+        #  Проверяем локальные/замыкаемые переменные
         info = self.ctx.current_env.resolve(name)
         if info and info.env_level > 0:
             FramePolicy.emit_var_address(
@@ -25,7 +25,7 @@ class VariableHandler(BaseHandler):
             wb.emit(OpCode.LOAD, WasmType.F64)
             return wb.build()
 
-        # 2. Проверяем глобальные переменные
+        #  Проверяем глобальные переменные
         if name in self.ctx.global_vars:
             wb.emit_get(f"${name}", 'global')
             return wb.build()
@@ -44,7 +44,7 @@ class VariableHandler(BaseHandler):
 
         info = self.ctx.current_env.resolve(name)
 
-        # 1. Присваивание в локальную/замыкаемую переменную
+        #  Присваивание в локальную/замыкаемую переменную
         if info and info.env_level > 0:
             wb.raw(val_code)
             wb.emit_set('$scratch', 'global')  # Сохраняем значение во временный регистр

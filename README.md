@@ -542,6 +542,9 @@ python -m scripts.cli compile <путь_к_файлу> -o <выходной_фа
 python -m scripts.cli compile .\examples\lamda_examples.lisp -o .\examples\lamda_examples.wat
 ```
 
+
+Вы можете в качестве примера посмотреть уже скомпилированный файл:
+ **[examples/lamda_examples.wat](examples/lamda_examples.wat)**
 ### Запуск 
 Выполняет полный цикл: парсинг, семантический анализ, компиляция и мгновенное выполнение кода через встроенный WASM-рантайм.
 
