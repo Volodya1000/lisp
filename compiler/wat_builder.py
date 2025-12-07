@@ -11,7 +11,7 @@ class WatBuilder:
         self.lines: List[str] = []
 
     def raw(self, line: str):
-        """Для вставки готовых кусков кода (например, от вложенных visitor)"""
+        """Для вставки готовых кусков кода от вложенных visitor"""
         if line:
             self.lines.append(line)
 

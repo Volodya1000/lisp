@@ -46,10 +46,10 @@ class WasmCompiler(ASTVisitor):
         logger.debug("Starting compilation...")
         self.ctx.type_registry.registered_types.clear()
 
-        # 1. Предварительный проход: регистрация глобальных имен
+        # Предварительный проход: регистрация глобальных имен
         self._scan_definitions(nodes)
 
-        # 2. Разделение на функции и основной код
+        # Разделение на функции и основной код
         main_nodes = []
         for node in nodes:
             if isinstance(node, DefunNode):
@@ -57,10 +57,10 @@ class WasmCompiler(ASTVisitor):
             else:
                 main_nodes.append(node)
 
-        # 3. Компиляция тела main
+        # Компиляция тела main
         main_body = self.handlers.control_flow.handle_progn(main_nodes, self)
 
-        # 4. Сборка финального модуля
+        #  Сборка финального модуля
         return self._build_final_module(nodes, main_body)
 
     def _scan_definitions(self, nodes: List[ASTNode]):
@@ -71,7 +71,6 @@ class WasmCompiler(ASTVisitor):
             elif isinstance(node, SetqNode):
                 self.ctx.define_global(node.var_name)
 
-    # --- Visitor Implementation (Routing) ---
 
     def visit_number(self, node: NumberNode):
         return self.handlers.values.handle_number(node)
@@ -121,7 +120,6 @@ class WasmCompiler(ASTVisitor):
     def visit_prim_call(self, node):
         return self.prim_handler.handle(node.prim_name, node.args, self)
 
-    # --- Module Assembly ---
 
     def _build_final_module(self, nodes, main_body):
         wb = WatBuilder()
@@ -141,7 +139,6 @@ class WasmCompiler(ASTVisitor):
         for func_code in self.ctx.funcs_code:
             wb.raw(func_code)
 
-        # Main function
         wb.raw(self._generate_main_func(nodes, main_body))
         wb.raw(')')
         return wb.build()
@@ -151,7 +148,6 @@ class WasmCompiler(ASTVisitor):
         wb.raw('  (func $entry (export "main") (result f64)')
         wb.raw('    (local $env f64)')
 
-        # Доступ к приватному методу допустим, т.к. мы знаем структуру
         wb.raw(self.handlers.functions._get_closure_locals_defs())
 
         wb.emit_const('0.0')

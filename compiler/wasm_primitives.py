@@ -18,7 +18,6 @@ class PrimitiveHandler:
         }
 
     def handle(self, prim_name: str, args: List, compiler_instance) -> str:
-        # Компилируем аргументы
         compiled_args = [arg.accept(compiler_instance) for arg in args]
         args_code = "\n".join(compiled_args)
 
@@ -34,7 +33,7 @@ class PrimitiveHandler:
         if prim_name == 'read':
             return "call $read_num"
 
-        # ВАЖНО: princ и print должны возвращать значение (0.0), чтобы стек не пустел
+        # princ и print должны возвращать значение (0.0), чтобы стек не пустел
         if prim_name == 'princ':
             return f"{compiled_args[0]}\ncall $princ\nf64.const 0.0"
 

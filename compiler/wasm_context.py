@@ -36,7 +36,6 @@ class CompilerContext:
         self.type_registry = TypeRegistry()
         self.call_depth = 0
 
-        # Используем Any, чтобы избежать циклического импорта BaseHandler
         self.handlers: Any = None
 
     def define_global(self, name: str):

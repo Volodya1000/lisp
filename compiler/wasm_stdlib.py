@@ -4,7 +4,7 @@ class WasmStdLib:
     @staticmethod
     def get_imports() -> str:
         """
-        Возвращает импорты функций из внешней среды (JavaScript или хост-системы).
+        Возвращает импорты функций из внешней среды.
         Включает функции для печати чисел/символов и чтения ввода.
         """
         return """
@@ -34,7 +34,6 @@ class WasmStdLib:
             code += f'  (global ${g_var} (mut f64) (f64.const 0.0))\n'
         return code
 
-    # --- Приватные функции генерации WAT кода (Private helpers) ---
 
     @staticmethod
     def _get_cons_func() -> str:
